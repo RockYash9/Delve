@@ -1,69 +1,46 @@
 """
-The core agent loop.
+The core agent.
 
-Brick 1: a bare single-turn call to Gemini — no tools, no memory. Done.
-Brick 2 (today): give the model a real web_search tool. Gemini decides
-for itself whether a question needs a search, and google-genai's
-automatic function calling handles running the tool and feeding results
-back in — we don't manage that loop by hand.
-Brick 3 (next): multi-turn conversation history.
-Brick 4: local caching + retrieval.
+Brick 1: a bare single-turn call to Gemini. Done.
+Brick 2: web_search tool, model decides when to call it. Done.
+Brick 3 (today): wrap a persistent chat session so multi-turn context
+works — follow-ups correctly refer back to earlier turns instead of
+every message being answered in isolation.
+Brick 4 (next): local caching + retrieval.
 """
 
 import time
-from datetime import date
 
-from google import genai
-from google.genai import types
 from google.genai import errors
 
-import config
-from src.tools.search import web_search
+from src.memory.conversation import Conversation
 
 
-def ask(user_message: str, max_retries: int = 3) -> str:
-    """Send a single message to Gemini and return the text response.
+class Agent:
+    """Owns one ongoing conversation and handles transient API errors."""
 
-    Gemini has access to the web_search tool and will call it on its
-    own if it decides the question needs current information.
+    def __init__(self):
+        self._conversation = Conversation()
 
-    Retries with backoff on transient server-side errors (e.g. 503
-    UNAVAILABLE when Google's servers are under heavy load) — this is
-    common on free-tier traffic and isn't something retrying-by-hand
-    should be necessary for.
-    """
-    client = genai.Client(api_key=config.GEMINI_API_KEY)
+    def ask(self, user_message: str, max_retries: int = 3) -> str:
+        """Send a message within the ongoing conversation and return the reply.
 
-    # The model has no built-in sense of "today". Without this, it guesses
-    # a year when a question implies recency ("last race", "current CEO")
-    # and often wastes a search call correcting a wrong guess.
-    system_instruction = (
-        f"Today's date is {date.today():%B %d, %Y}. When a question implies "
-        f"recent or current information, use that as your reference point "
-        f"rather than guessing a year."
-    )
+        Retries with backoff on transient server-side errors (e.g. 503
+        UNAVAILABLE when Google's servers are under heavy load).
+        """
+        for attempt in range(max_retries):
+            try:
+                return self._conversation.send(user_message)
+            except errors.ServerError:
+                if attempt == max_retries - 1:
+                    return (
+                        "Gemini's servers are overloaded right now and "
+                        "retries didn't succeed. This is temporary — try "
+                        "again in a minute."
+                    )
+                wait_seconds = 2 ** attempt  # 1s, 2s, 4s
+                time.sleep(wait_seconds)
 
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=config.MODEL_NAME,
-                contents=user_message,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    max_output_tokens=config.MAX_TOKENS,
-                    tools=[web_search],
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        maximum_remote_calls=5,
-                    ),
-                ),
-            )
-            return response.text
-        except errors.ServerError:
-            if attempt == max_retries - 1:
-                return (
-                    "Gemini's servers are overloaded right now and retries "
-                    "didn't succeed. This is temporary — try again in a "
-                    "minute."
-                )
-            wait_seconds = 2 ** attempt  # 1s, 2s, 4s
-            time.sleep(wait_seconds)
+    def reset(self) -> None:
+        """Start a brand new conversation, discarding prior context."""
+        self._conversation = Conversation()

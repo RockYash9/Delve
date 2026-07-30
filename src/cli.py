@@ -1,25 +1,27 @@
 """
 Interactive command-line loop for Delve.
 
-Brick 1: a plain REPL — type a question, get an answer, repeat.
-No conversation memory yet (each question is independent) — that's brick 3.
+Brick 3: one Agent instance persists for the whole session, so
+follow-up questions carry context from earlier in the conversation.
+Type 'reset' to start a fresh conversation without restarting the app.
 """
 
 from rich.console import Console
 from rich.panel import Panel
 
 import config
-from src import agent
+from src.agent import Agent
 
 console = Console()
 
 
 def run() -> None:
     config.validate_config()
+    agent = Agent()
 
     console.print(Panel.fit(
-        "[bold cyan]Delve[/bold cyan] — brick 1: single-turn Q&A\n"
-        "Type your question, or 'exit' to quit.",
+        "[bold cyan]Delve[/bold cyan] — brick 3: conversational search\n"
+        "Type your question, 'reset' to start fresh, or 'exit' to quit.",
     ))
 
     while True:
@@ -34,6 +36,10 @@ def run() -> None:
         if user_input.lower() in {"exit", "quit"}:
             console.print("[dim]bye[/dim]")
             break
+        if user_input.lower() == "reset":
+            agent.reset()
+            console.print("[dim]Conversation reset — starting fresh.[/dim]")
+            continue
 
         with console.status("[dim]thinking...[/dim]"):
             answer = agent.ask(user_input)

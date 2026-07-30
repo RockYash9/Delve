@@ -8,7 +8,7 @@ Built brick by brick — this repo will grow in stages:
 
 - [x] **Brick 1** — environment + a single working call to Gemini
 - [x] **Brick 2** — web search tool + agent decides when to call it
-- [ ] **Brick 3** — multi-turn conversation memory
+- [x] **Brick 3** — multi-turn conversation memory (type 'reset' to start fresh)
 - [ ] **Brick 4** — local caching + embedding-based retrieval
 - [ ] **Brick 5** — CLI polish + exportable research reports
 
