@@ -18,6 +18,10 @@ from src.storage import cache
 
 console = Console()
 
+# Every source seen this session (cache hit or live search), for later
+# export as a citations appendix. Deduplicated by URL at export time.
+SESSION_SOURCES: list[dict] = []
+
 
 def web_search(query: str) -> str:
     """Search the live web for current, factual information.
@@ -37,10 +41,10 @@ def web_search(query: str) -> str:
     cached_matches = cache.find_similar(query)
     if cached_matches:
         console.print(f"[dim]  💾 using cached results for: {query}[/dim]")
-        formatted_chunks = [
-            f"Title: {title}\nURL: {url}\nContent: {content}"
-            for _score, title, url, content in cached_matches
-        ]
+        formatted_chunks = []
+        for _score, title, url, content in cached_matches:
+            SESSION_SOURCES.append({"title": title, "url": url})
+            formatted_chunks.append(f"Title: {title}\nURL: {url}\nContent: {content}")
         return "\n\n---\n\n".join(formatted_chunks)
 
     console.print(f"[dim]  🔍 searching: {query}[/dim]")
@@ -60,6 +64,7 @@ def web_search(query: str) -> str:
 
         cache.store_result(query=query, title=title, url=url, content=content)
 
+        SESSION_SOURCES.append({"title": title, "url": url})
         formatted_chunks.append(f"Title: {title}\nURL: {url}\nContent: {content}")
 
     return "\n\n---\n\n".join(formatted_chunks)

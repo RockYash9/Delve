@@ -9,8 +9,15 @@ Built brick by brick — this repo will grow in stages:
 - [x] **Brick 1** — environment + a single working call to Gemini
 - [x] **Brick 2** — web search tool + agent decides when to call it
 - [x] **Brick 3** — multi-turn conversation memory (type 'reset' to start fresh)
-- [ ] **Brick 4** — local caching + embedding-based retrieval
-- [ ] **Brick 5** — CLI polish + exportable research reports
+- [x] **Brick 4** — local caching + semantic retrieval (the agent reuses past searches)
+- [x] **Brick 5** — CLI polish + exportable research reports
+
+## Commands (inside the running app)
+
+- `help` — list available commands
+- `reset` — start a fresh conversation (clears memory, keeps the knowledge cache)
+- `export` — save the current conversation as a markdown report with a sources appendix, into `reports/`
+- `exit` / `quit` — leave
 
 ## Setup
 
@@ -31,6 +38,14 @@ cp .env.example .env
 # 4. Run it
 python main.py
 ```
+
+**First run only:** the very first search will download the local
+embedding model (~90MB, one-time, cached afterward) — this happens
+automatically but takes a moment, and needs an internet connection
+even though the model runs locally after that.
+
+A `delve_cache.db` file will appear in the project folder as you use
+it — that's your growing local knowledge base. It's already gitignored.
 
 ## Experimenting
 

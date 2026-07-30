@@ -51,3 +51,18 @@ class Conversation:
     def turn_count(self) -> int:
         """How many messages (user + model) are in this conversation so far."""
         return len(self._chat.get_history())
+
+    def get_transcript(self) -> list[tuple[str, str]]:
+        """Return (role, text) pairs for the human-readable parts of this
+        conversation — skips the internal tool-call/tool-result traffic,
+        keeping just what the user asked and what the model answered.
+        """
+        transcript = []
+        for content in self._chat.get_history():
+            text_parts = [
+                part.text for part in (content.parts or [])
+                if getattr(part, "text", None)
+            ]
+            if text_parts:
+                transcript.append((content.role, "\n".join(text_parts)))
+        return transcript

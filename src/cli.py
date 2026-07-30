@@ -1,9 +1,8 @@
 """
 Interactive command-line loop for Delve.
 
-Brick 3: one Agent instance persists for the whole session, so
-follow-up questions carry context from earlier in the conversation.
-Type 'reset' to start a fresh conversation without restarting the app.
+Brick 5: help and export commands, plus a proper startup banner —
+this is the "feels finished" layer on top of bricks 1-4.
 """
 
 from rich.console import Console
@@ -11,18 +10,36 @@ from rich.panel import Panel
 
 import config
 from src.agent import Agent
+from src.tools.search import SESSION_SOURCES
+from src import reports
 
 console = Console()
+
+COMMANDS = {
+    "help": "show this list of commands",
+    "reset": "start a fresh conversation (clears memory, keeps the knowledge cache)",
+    "export": "save this conversation as a markdown report with sources",
+    "exit / quit": "leave Delve",
+}
+
+
+def print_banner() -> None:
+    console.print(Panel.fit(
+        "[bold cyan]Delve[/bold cyan] — conversational research engine\n"
+        "Type a question, or one of: " + ", ".join(COMMANDS.keys()),
+    ))
+
+
+def print_help() -> None:
+    lines = [f"[bold]{cmd}[/bold] — {desc}" for cmd, desc in COMMANDS.items()]
+    console.print(Panel("\n".join(lines), title="Commands", border_style="cyan"))
 
 
 def run() -> None:
     config.validate_config()
     agent = Agent()
 
-    console.print(Panel.fit(
-        "[bold cyan]Delve[/bold cyan] — brick 3: conversational search\n"
-        "Type your question, 'reset' to start fresh, or 'exit' to quit.",
-    ))
+    print_banner()
 
     while True:
         try:
@@ -33,12 +50,30 @@ def run() -> None:
 
         if not user_input:
             continue
-        if user_input.lower() in {"exit", "quit"}:
+
+        command = user_input.lower()
+
+        if command in {"exit", "quit"}:
             console.print("[dim]bye[/dim]")
             break
-        if user_input.lower() == "reset":
+
+        if command == "help":
+            print_help()
+            continue
+
+        if command == "reset":
             agent.reset()
             console.print("[dim]Conversation reset — starting fresh.[/dim]")
+            continue
+
+        if command == "export":
+            transcript = agent.get_transcript()
+            if not transcript:
+                console.print("[dim]Nothing to export yet — ask something first.[/dim]")
+                continue
+            report_text = reports.build_report(transcript, SESSION_SOURCES)
+            path = reports.save_report(report_text)
+            console.print(f"[green]Saved report to {path}[/green]")
             continue
 
         with console.status("[dim]thinking...[/dim]"):

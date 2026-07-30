@@ -44,3 +44,7 @@ class Agent:
     def reset(self) -> None:
         """Start a brand new conversation, discarding prior context."""
         self._conversation = Conversation()
+
+    def get_transcript(self) -> list[tuple[str, str]]:
+        """The current conversation's (role, text) history, for export."""
+        return self._conversation.get_transcript()
