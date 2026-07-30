@@ -1,12 +1,12 @@
 # Delve
 
-An agentic, conversational research/search engine. Claude decides when and
+An agentic, conversational research/search engine. Gemini decides when and
 how to search the web, iterates on its own queries when results aren't
 enough, and remembers context across a session.
 
 Built brick by brick — this repo will grow in stages:
 
-- [x] **Brick 1** — environment + a single working call to Claude
+- [x] **Brick 1** — environment + a single working call to Gemini
 - [ ] **Brick 2** — web search tool + agent decides when to call it
 - [ ] **Brick 3** — multi-turn conversation memory
 - [ ] **Brick 4** — local caching + embedding-based retrieval
@@ -24,10 +24,21 @@ pip install -r requirements.txt
 
 # 3. Set up your API key
 cp .env.example .env
-# then edit .env and paste in your ANTHROPIC_API_KEY
+# then edit .env and paste in your GEMINI_API_KEY (get one free, no card
+# needed, at https://aistudio.google.com)
 
 # 4. Run it
 python main.py
+```
+
+## Experimenting
+
+`playground.ipynb` is a scratch notebook for testing new ideas (a new tool,
+a raw API response, etc.) before writing them into `src/`. It's not part of
+the actual product — that's `main.py`. Launch it with:
+
+```bash
+jupyter notebook playground.ipynb
 ```
 
 ## Project structure

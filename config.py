@@ -12,11 +12,11 @@ from dotenv import load_dotenv
 
 load_dotenv()  # reads .env into the process environment
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Model used for the agent loop. Kept as a named constant so it's
-# easy to swap later (e.g. if you want to test a cheaper/faster model).
-MODEL_NAME = "claude-sonnet-4-6"
+# Model used for the agent loop. Gemini 2.5 Flash is the free-tier model:
+# generous daily request limit, supports function/tool calling, no card needed.
+MODEL_NAME = "gemini-3.5-flash-lite"
 
 MAX_TOKENS = 1024
 
@@ -24,8 +24,8 @@ MAX_TOKENS = 1024
 def validate_config() -> None:
     """Fail fast and clearly if required keys are missing."""
     missing = []
-    if not ANTHROPIC_API_KEY:
-        missing.append("ANTHROPIC_API_KEY")
+    if not GEMINI_API_KEY:
+        missing.append("GEMINI_API_KEY")
 
     if missing:
         print(

@@ -1,31 +1,49 @@
 """
 The core agent loop.
 
-Brick 1 (today): a bare single-turn call to Claude — no tools, no memory.
+Brick 1 (today): a bare single-turn call to Gemini — no tools, no memory.
 This exists purely to prove the environment and API key work end to end.
 
-Brick 2 (next): add the web_search tool and let Claude decide when to call it.
+Brick 2 (next): add the web_search tool and let the model decide when to call it.
 Brick 3: multi-turn conversation history.
 Brick 4: local caching + retrieval.
 """
 
-import anthropic
+import time
+
+from google import genai
+from google.genai import types
+from google.genai import errors
+
 import config
 
 
-def ask(user_message: str) -> str:
-    """Send a single message to Claude and return the text response."""
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+def ask(user_message: str, max_retries: int = 3) -> str:
+    """Send a single message to Gemini and return the text response.
 
-    response = client.messages.create(
-        model=config.MODEL_NAME,
-        max_tokens=config.MAX_TOKENS,
-        messages=[
-            {"role": "user", "content": user_message}
-        ],
-    )
+    Retries with backoff on transient server-side errors (e.g. 503
+    UNAVAILABLE when Google's servers are under heavy load) — this is
+    common on free-tier traffic and isn't something retrying-by-hand
+    should be necessary for.
+    """
+    client = genai.Client(api_key=config.GEMINI_API_KEY)
 
-    # response.content is a list of blocks (text, tool_use, etc).
-    # For brick 1 we only expect plain text blocks.
-    text_parts = [block.text for block in response.content if block.type == "text"]
-    return "\n".join(text_parts)
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model=config.MODEL_NAME,
+                contents=user_message,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=config.MAX_TOKENS,
+                ),
+            )
+            return response.text
+        except errors.ServerError:
+            if attempt == max_retries - 1:
+                return (
+                    "Gemini's servers are overloaded right now and retries "
+                    "didn't succeed. This is temporary — try again in a "
+                    "minute."
+                )
+            wait_seconds = 2 ** attempt  # 1s, 2s, 4s
+            time.sleep(wait_seconds)
