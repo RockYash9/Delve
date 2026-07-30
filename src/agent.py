@@ -11,6 +11,7 @@ Brick 4: local caching + retrieval.
 """
 
 import time
+from datetime import date
 
 from google import genai
 from google.genai import types
@@ -33,12 +34,22 @@ def ask(user_message: str, max_retries: int = 3) -> str:
     """
     client = genai.Client(api_key=config.GEMINI_API_KEY)
 
+    # The model has no built-in sense of "today". Without this, it guesses
+    # a year when a question implies recency ("last race", "current CEO")
+    # and often wastes a search call correcting a wrong guess.
+    system_instruction = (
+        f"Today's date is {date.today():%B %d, %Y}. When a question implies "
+        f"recent or current information, use that as your reference point "
+        f"rather than guessing a year."
+    )
+
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
                 model=config.MODEL_NAME,
                 contents=user_message,
                 config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
                     max_output_tokens=config.MAX_TOKENS,
                     tools=[web_search],
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(
