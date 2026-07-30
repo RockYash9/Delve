@@ -13,9 +13,13 @@ from dotenv import load_dotenv
 load_dotenv()  # reads .env into the process environment
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
-# Model used for the agent loop. Gemini 2.5 Flash is the free-tier model:
-# generous daily request limit, supports function/tool calling, no card needed.
+# Model used for the agent loop. gemini-3.5-flash-lite is the current
+# free-tier model — fast, more free-tier headroom than full Flash, and
+# supports function/tool calling.
+# Note: Google retires model IDs fairly often — if this model ever 404s,
+# check https://ai.google.dev/gemini-api/docs/changelog for the current name.
 MODEL_NAME = "gemini-3.5-flash-lite"
 
 MAX_TOKENS = 1024
@@ -26,6 +30,8 @@ def validate_config() -> None:
     missing = []
     if not GEMINI_API_KEY:
         missing.append("GEMINI_API_KEY")
+    if not TAVILY_API_KEY:
+        missing.append("TAVILY_API_KEY")
 
     if missing:
         print(

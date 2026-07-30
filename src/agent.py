@@ -1,11 +1,12 @@
 """
 The core agent loop.
 
-Brick 1 (today): a bare single-turn call to Gemini — no tools, no memory.
-This exists purely to prove the environment and API key work end to end.
-
-Brick 2 (next): add the web_search tool and let the model decide when to call it.
-Brick 3: multi-turn conversation history.
+Brick 1: a bare single-turn call to Gemini — no tools, no memory. Done.
+Brick 2 (today): give the model a real web_search tool. Gemini decides
+for itself whether a question needs a search, and google-genai's
+automatic function calling handles running the tool and feeding results
+back in — we don't manage that loop by hand.
+Brick 3 (next): multi-turn conversation history.
 Brick 4: local caching + retrieval.
 """
 
@@ -16,10 +17,14 @@ from google.genai import types
 from google.genai import errors
 
 import config
+from src.tools.search import web_search
 
 
 def ask(user_message: str, max_retries: int = 3) -> str:
     """Send a single message to Gemini and return the text response.
+
+    Gemini has access to the web_search tool and will call it on its
+    own if it decides the question needs current information.
 
     Retries with backoff on transient server-side errors (e.g. 503
     UNAVAILABLE when Google's servers are under heavy load) — this is
@@ -35,6 +40,10 @@ def ask(user_message: str, max_retries: int = 3) -> str:
                 contents=user_message,
                 config=types.GenerateContentConfig(
                     max_output_tokens=config.MAX_TOKENS,
+                    tools=[web_search],
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        maximum_remote_calls=5,
+                    ),
                 ),
             )
             return response.text

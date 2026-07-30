@@ -7,7 +7,7 @@ enough, and remembers context across a session.
 Built brick by brick — this repo will grow in stages:
 
 - [x] **Brick 1** — environment + a single working call to Gemini
-- [ ] **Brick 2** — web search tool + agent decides when to call it
+- [x] **Brick 2** — web search tool + agent decides when to call it
 - [ ] **Brick 3** — multi-turn conversation memory
 - [ ] **Brick 4** — local caching + embedding-based retrieval
 - [ ] **Brick 5** — CLI polish + exportable research reports
@@ -22,10 +22,11 @@ source .venv/bin/activate        # on Windows: .venv\Scripts\activate
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Set up your API key
+# 3. Set up your API keys
 cp .env.example .env
-# then edit .env and paste in your GEMINI_API_KEY (get one free, no card
-# needed, at https://aistudio.google.com)
+# then edit .env and paste in:
+#   GEMINI_API_KEY  — free, no card, from https://aistudio.google.com
+#   TAVILY_API_KEY  — free (1,000 searches/month), no card, from https://tavily.com
 
 # 4. Run it
 python main.py
