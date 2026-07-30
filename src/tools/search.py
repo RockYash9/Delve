@@ -1,17 +1,20 @@
 """
-Web search tool, backed by Tavily's search API.
+Web search tool, backed by Tavily's search API — with a local cache
+layer in front of it (brick 4).
 
-This function is handed directly to Gemini as a "tool" — the model reads
-its name, docstring, and type hints to decide when it's relevant, and
-google-genai's automatic function calling handles invoking it and feeding
-the result back into the model's reasoning. We don't manually manage that
-loop; the SDK does it.
+Every result Delve fetches gets embedded and stored locally. Before
+spending a real Tavily API call, we check whether something
+semantically similar has already been fetched, and reuse it if so.
+This means repeated or related questions get faster and don't burn
+through the free-tier search quota, and the tool's own knowledge base
+grows the more it's used.
 """
 
 from tavily import TavilyClient
 from rich.console import Console
 
 import config
+from src.storage import cache
 
 console = Console()
 
@@ -31,6 +34,15 @@ def web_search(query: str) -> str:
         A text summary of the top search results, including titles,
         URLs, and relevant snippets.
     """
+    cached_matches = cache.find_similar(query)
+    if cached_matches:
+        console.print(f"[dim]  💾 using cached results for: {query}[/dim]")
+        formatted_chunks = [
+            f"Title: {title}\nURL: {url}\nContent: {content}"
+            for _score, title, url, content in cached_matches
+        ]
+        return "\n\n---\n\n".join(formatted_chunks)
+
     console.print(f"[dim]  🔍 searching: {query}[/dim]")
 
     client = TavilyClient(api_key=config.TAVILY_API_KEY)
@@ -42,10 +54,12 @@ def web_search(query: str) -> str:
 
     formatted_chunks = []
     for r in results:
-        formatted_chunks.append(
-            f"Title: {r.get('title', 'Untitled')}\n"
-            f"URL: {r.get('url', '')}\n"
-            f"Content: {r.get('content', '')}"
-        )
+        title = r.get("title", "Untitled")
+        url = r.get("url", "")
+        content = r.get("content", "")
+
+        cache.store_result(query=query, title=title, url=url, content=content)
+
+        formatted_chunks.append(f"Title: {title}\nURL: {url}\nContent: {content}")
 
     return "\n\n---\n\n".join(formatted_chunks)
