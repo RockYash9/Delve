@@ -11,7 +11,6 @@ from rich.panel import Panel
 import config
 from src import reports
 from src.agent import Agent
-from src.tools.search import SESSION_SOURCES
 
 console = Console()
 
@@ -71,7 +70,7 @@ def run() -> None:
             if not transcript:
                 console.print("[dim]Nothing to export yet — ask something first.[/dim]")
                 continue
-            report_text = reports.build_report(transcript, SESSION_SOURCES)
+            report_text = reports.build_report(transcript, agent.get_sources())
             path = reports.save_report(report_text)
             console.print(f"[green]Saved report to {path}[/green]")
             continue
@@ -80,3 +79,4 @@ def run() -> None:
             answer = agent.ask(user_input)
 
         console.print(Panel(answer, title="Delve", border_style="cyan"))
+        

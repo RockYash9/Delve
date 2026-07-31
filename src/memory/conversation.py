@@ -15,7 +15,7 @@ from google import genai
 from google.genai import types
 
 import config
-from src.tools.search import web_search
+from src.tools.search import make_web_search_tool
 
 
 def _system_instruction() -> str:
@@ -30,13 +30,18 @@ class Conversation:
     """A single multi-turn conversation with memory across turns."""
 
     def __init__(self):
+        # Every conversation tracks its own search sources — never
+        # shared with other conversations, so concurrent sessions
+        # (brick 7's API) can't leak citations between each other.
+        self.sources: list[dict] = []
+
         self._client = genai.Client(api_key=config.GEMINI_API_KEY)
         self._chat = self._client.chats.create(
             model=config.MODEL_NAME,
             config=types.GenerateContentConfig(
                 system_instruction=_system_instruction(),
                 max_output_tokens=config.MAX_TOKENS,
-                tools=[web_search],
+                tools=[make_web_search_tool(self.sources)],
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(
                     maximum_remote_calls=5,
                 ),

@@ -67,3 +67,7 @@ class Agent:
     def get_transcript(self) -> list[tuple[str, str]]:
         """The current conversation's (role, text) history, for export."""
         return self._conversation.get_transcript()
+
+    def get_sources(self) -> list[dict]:
+        """Sources gathered via search during this conversation, for export."""
+        return self._conversation.sources
