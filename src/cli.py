@@ -9,9 +9,9 @@ from rich.console import Console
 from rich.panel import Panel
 
 import config
+from src import reports
 from src.agent import Agent
 from src.tools.search import SESSION_SOURCES
-from src import reports
 
 console = Console()
 

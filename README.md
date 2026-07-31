@@ -172,6 +172,22 @@ Every time the agent searches the web, the query and result are embedded using a
 
 ---
 
+## Development
+
+This project uses automated tests, linting, and type checking — a GitHub Actions workflow (`.github/workflows/ci.yml`) runs all three on every push.
+
+```bash
+pip install -r requirements-dev.txt
+
+pytest -v          # run the test suite
+ruff check .        # lint
+mypy .               # type check
+```
+
+Tests mock all external APIs (Gemini, Tavily, the embedding model) — the suite runs fully offline and never needs real API keys, so it's safe to run in CI or anywhere else.
+
+Logs are written to `logs/delve.log` (rotated automatically) — useful for understanding agent behavior after the fact, separate from the live terminal UI.
+
 ## Known limitations
 
 - Gemini's free-tier models are occasionally retired or renamed by Google with little notice — if you hit a `404` on the configured model, check [ai.google.dev/gemini-api/docs/changelog](https://ai.google.dev/gemini-api/docs/changelog) and update `MODEL_NAME` in `config.py`.
@@ -187,9 +203,12 @@ Every time the agent searches the web, the query and result are embedded using a
 - [x] Multi-turn conversational memory
 - [x] Local semantic caching of search results
 - [x] Exportable, cited research reports
+- [x] Automated tests, linting, type checking, and CI
+- [x] Structured logging separate from user-facing output
 - [ ] Source credibility scoring / filtering
 - [ ] Persistent user profiles across sessions
 - [ ] Configurable cache expiration for time-sensitive topics
+- [ ] Web-based interface (backend API + frontend)
 
 ---
 

@@ -46,6 +46,14 @@ class Conversation:
     def send(self, message: str) -> str:
         """Send a message within this conversation and return the reply."""
         response = self._chat.send_message(message)
+        if response.text is None:
+            # Can happen if the response was safety-filtered or contained
+            # only a function call with no accompanying text. Rare, but a
+            # silent None would be a confusing crash three layers up.
+            return (
+                "I wasn't able to generate a text response to that — try "
+                "rephrasing your question."
+            )
         return response.text
 
     def turn_count(self) -> int:
@@ -57,11 +65,14 @@ class Conversation:
         conversation — skips the internal tool-call/tool-result traffic,
         keeping just what the user asked and what the model answered.
         """
-        transcript = []
+        transcript: list[tuple[str, str]] = []
         for content in self._chat.get_history():
+            if content.role is None:
+                continue
             text_parts = [
-                part.text for part in (content.parts or [])
-                if getattr(part, "text", None)
+                part.text
+                for part in (content.parts or [])
+                if part.text
             ]
             if text_parts:
                 transcript.append((content.role, "\n".join(text_parts)))

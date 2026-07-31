@@ -8,6 +8,7 @@ the project grows.
 
 import os
 import sys
+
 from dotenv import load_dotenv
 
 load_dotenv()  # reads .env into the process environment

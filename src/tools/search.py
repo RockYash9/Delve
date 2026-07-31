@@ -10,13 +10,16 @@ through the free-tier search quota, and the tool's own knowledge base
 grows the more it's used.
 """
 
-from tavily import TavilyClient
+import logging
+
 from rich.console import Console
+from tavily import TavilyClient
 
 import config
 from src.storage import cache
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 # Every source seen this session (cache hit or live search), for later
 # export as a citations appendix. Deduplicated by URL at export time.
@@ -41,6 +44,7 @@ def web_search(query: str) -> str:
     cached_matches = cache.find_similar(query)
     if cached_matches:
         console.print(f"[dim]  💾 using cached results for: {query}[/dim]")
+        logger.info("cache_hit query=%r matches=%d", query, len(cached_matches))
         formatted_chunks = []
         for _score, title, url, content in cached_matches:
             SESSION_SOURCES.append({"title": title, "url": url})
@@ -48,12 +52,14 @@ def web_search(query: str) -> str:
         return "\n\n---\n\n".join(formatted_chunks)
 
     console.print(f"[dim]  🔍 searching: {query}[/dim]")
+    logger.info("live_search query=%r", query)
 
     client = TavilyClient(api_key=config.TAVILY_API_KEY)
     response = client.search(query=query, max_results=5)
 
     results = response.get("results", [])
     if not results:
+        logger.warning("live_search_no_results query=%r", query)
         return f"No search results found for '{query}'."
 
     formatted_chunks = []

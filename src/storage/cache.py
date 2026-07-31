@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.storage.embeddings import embed_text, cosine_similarity
+from src.storage.embeddings import cosine_similarity, embed_text
 
 # Lives at the project root, next to main.py. Already covered by
 # .gitignore ("*.db") so it never gets committed.

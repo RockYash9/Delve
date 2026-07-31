@@ -1,0 +1,28 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # import sorting
+    "UP",  # pyupgrade (modern Python idioms)
+    "B",   # bugbear (common bug patterns)
+]
+ignore = [
+    "E501",  # line length is handled by the formatter, not the linter
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+# Starting lenient on purpose: strict mode on a young codebase produces
+# more noise than signal. Tighten these as the project matures.
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

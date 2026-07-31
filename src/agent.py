@@ -9,11 +9,14 @@ every message being answered in isolation.
 Brick 4 (next): local caching + retrieval.
 """
 
+import logging
 import time
 
 from google.genai import errors
 
 from src.memory.conversation import Conversation
+
+logger = logging.getLogger(__name__)
 
 
 class Agent:
@@ -28,18 +31,34 @@ class Agent:
         Retries with backoff on transient server-side errors (e.g. 503
         UNAVAILABLE when Google's servers are under heavy load).
         """
+        if max_retries < 1:
+            raise ValueError("max_retries must be at least 1")
+
         for attempt in range(max_retries):
             try:
                 return self._conversation.send(user_message)
             except errors.ServerError:
                 if attempt == max_retries - 1:
+                    logger.warning(
+                        "gemini_overloaded_giving_up attempts=%d", max_retries
+                    )
                     return (
                         "Gemini's servers are overloaded right now and "
                         "retries didn't succeed. This is temporary — try "
                         "again in a minute."
                     )
-                wait_seconds = 2 ** attempt  # 1s, 2s, 4s
+                wait_seconds = 2**attempt  # 1s, 2s, 4s
+                logger.info(
+                    "gemini_overloaded_retrying attempt=%d wait_seconds=%d",
+                    attempt + 1,
+                    wait_seconds,
+                )
                 time.sleep(wait_seconds)
+
+        # Unreachable in practice (the loop above always returns or raises),
+        # but keeps the function's return type honest for the type checker
+        # and any future refactor that changes the loop.
+        raise RuntimeError("ask() exited its retry loop without returning")
 
     def reset(self) -> None:
         """Start a brand new conversation, discarding prior context."""
