@@ -67,17 +67,31 @@ class Conversation:
         return response.text
 
     def send_stream(self, message: str):
-        """Send a message and yield structured events as the reply streams in.
+        """Send a message and yield structured events for a live-feeling reply.
 
         Yields dicts of the form {"type": "status"|"token", "text": ...}.
-        Status events surface search activity (recorded in status_events
-        by the search tool while the SDK runs it internally, mid-stream)
-        interleaved with the actual answer text as it's generated, so a
-        client can show "searching..." before the text that resulted
-        from it rather than only seeing a long pause.
+
+        IMPORTANT DESIGN NOTE: this does NOT use Gemini's raw
+        send_message_stream(). Gemini has a confirmed bug (gemini-3.5-flash,
+        mid-2026) where combining streaming with automatic function
+        calling can cause the model's final answer to come back
+        genuinely empty whenever a tool runs mid-stream — not just a
+        display glitch, the generation itself stops with no text. Since
+        this agent's search tool is attached to every conversation, that
+        failure mode isn't a rare edge case here, it's close to
+        guaranteed. A history-based recovery attempt was tried first and
+        confirmed insufficient (the answer isn't there to recover).
+
+        Instead: get the complete, correct answer via send() — the
+        non-streaming path already proven reliable throughout this
+        project — then deliver it to the client in small word-sized
+        pieces for a live-typing feel. Search status still surfaces in
+        true real time, since status_events is populated by our own
+        tool wrapper independent of Gemini's stream; only the final
+        answer text is "simulated" streaming rather than raw
+        network-level token streaming.
         """
         flushed_count = 0
-        any_token_yielded = False
 
         def flush_pending_status():
             nonlocal flushed_count
@@ -85,32 +99,17 @@ class Conversation:
                 yield {"type": "status", "text": self.status_events[flushed_count]}
                 flushed_count += 1
 
-        for chunk in self._chat.send_message_stream(message):
-            yield from flush_pending_status()
-            if chunk.text:
-                any_token_yielded = True
-                yield {"type": "token", "text": chunk.text}
+        reply = self.send(message)
 
-        # Any status events recorded after the last chunk was produced
-        # (e.g. a search that ran right before the stream closed) still
-        # need to reach the client.
+        # By the time send() returns, any searches it triggered have
+        # already recorded their status — flush all of it now, before
+        # the answer text, matching the "searching... then answer" order
+        # a client should show.
         yield from flush_pending_status()
 
-        if not any_token_yielded:
-            # Known SDK/API quirk (as of Gemini 3.5 Flash, mid-2026): when
-            # automatic function calling runs a tool during a streamed
-            # response, the final answer text sometimes never arrives as
-            # a streamed chunk at all — even though the SDK *does* still
-            # correctly record it in the chat's history once the stream
-            # finishes. Rather than leave the client with an empty reply,
-            # recover the text from history instead.
-            history = self._chat.get_history()
-            if history and history[-1].role == "model":
-                fallback_text = "".join(
-                    part.text for part in (history[-1].parts or []) if part.text
-                )
-                if fallback_text:
-                    yield {"type": "token", "text": fallback_text}
+        for i, word in enumerate(reply.split(" ")):
+            piece = word if i == 0 else " " + word
+            yield {"type": "token", "text": piece}
 
     def turn_count(self) -> int:
         """How many messages (user + model) are in this conversation so far."""

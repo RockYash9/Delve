@@ -199,7 +199,7 @@ curl -X POST http://127.0.0.1:8000/chat \
 
 ### Streaming
 
-`/chat/stream` sends structured Server-Sent Events instead of one final blob — this is what lets a frontend show text appearing token-by-token and "searching..." status updates in real time, the way ChatGPT/Claude feel live rather than "wait, then dump."
+`/chat/stream` sends structured Server-Sent Events instead of one final blob — search status arrives in true real time, and the answer text is delivered in word-sized chunks for a live-typing feel. (It's not raw network-level token streaming — see "Known limitations" for why; Gemini's real streaming is currently unreliable once a tool call is involved, so this gets the complete correct answer first, then delivers it incrementally.)
 
 ```
 data: {"type": "session", "session_id": "..."}
@@ -241,7 +241,7 @@ Logs are written to `logs/delve.log` (rotated automatically) — useful for unde
 ## Known limitations
 
 - Gemini's free-tier models are occasionally retired or renamed by Google with little notice — if you hit a `404` on the configured model, check [ai.google.dev/gemini-api/docs/changelog](https://ai.google.dev/gemini-api/docs/changelog) and update `MODEL_NAME` in `config.py`.
-- **Known Gemini SDK quirk**: when a search happens mid-stream, the final answer text sometimes never arrives as a streamed chunk at all (a documented issue with `gemini-3.5-flash` + streaming + automatic function calling). `Conversation.send_stream()` detects this and falls back to reading the answer from chat history instead of returning nothing — so it's handled, but it does mean that specific case arrives as one block of text rather than token-by-token.
+- **Gemini's raw streaming API is unreliable with tools attached**: `gemini-3.5-flash` has a confirmed bug (mid-2026) where combining true token streaming with automatic function calling can cause the model's final answer to come back genuinely empty whenever a tool runs mid-response — not just a display glitch, the generation itself stops with no text. Since this agent's search tool is attached to every conversation, that isn't a rare edge case here. `/chat/stream` works around it by getting the complete answer via the proven-reliable non-streaming path, then delivering it to the client in word-sized chunks — search status still arrives in true real time, but the final answer is "simulated" streaming rather than raw network-level token streaming.
 - The semantic cache has no expiration — for fast-changing topics (news, prices), a stale cached result could be served if it's semantically close enough. A time-based cache invalidation policy is a natural next improvement.
 - Free-tier rate limits apply on both Gemini and Tavily; heavy usage may require upgrading either.
 
