@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Delve — research console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #12100D;
+    --panel: #1C1912;
+    --panel-border: #2C2718;
+    --text: #EDE6D6;
+    --text-dim: #8A8272;
+    --text-faint: #565044;
+    --brass: #C99A4E;
+    --brass-dim: #6B5730;
+    --teal: #6FA89C;
+    --rust: #C06B4E;
+  }
+
+  * { box-sizing: border-box; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Spectral', Georgia, serif;
+  }
+
+  body {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ---------- Depth gauge rail ---------- */
+  .rail {
+    background: var(--panel);
+    border-right: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 0 16px;
+  }
+
+  .rail-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--text-faint);
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    margin-bottom: 24px;
+    user-select: none;
+  }
+
+  .gauge {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 7px;
+    width: 100%;
+    align-items: center;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .gauge::-webkit-scrollbar { display: none; }
+
+  .tick {
+    width: 22px;
+    height: 2px;
+    background: var(--panel-border);
+    border-radius: 1px;
+    flex-shrink: 0;
+  }
+  .tick.lit {
+    background: var(--brass);
+    box-shadow: 0 0 6px rgba(201, 154, 78, 0.5);
+  }
+
+  .rail-count {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-top: 12px;
+  }
+
+  .rail-reset {
+    margin-top: 16px;
+    background: none;
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    padding: 6px 4px;
+    border-radius: 3px;
+    cursor: pointer;
+    writing-mode: vertical-rl;
+  }
+  .rail-reset:hover { color: var(--rust); border-color: var(--rust); }
+  .rail-reset:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+  /* ---------- Main column ---------- */
+  main {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 22px 32px 16px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  .wordmark {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--text);
+  }
+  .wordmark .dot { color: var(--brass); }
+
+  .tagline {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-left: 10px;
+  }
+
+  #export-btn {
+    background: none;
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    padding: 7px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #export-btn:hover:not(:disabled) { color: var(--brass); border-color: var(--brass-dim); }
+  #export-btn:disabled { opacity: 0.35; cursor: default; }
+  #export-btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+  /* ---------- Conversation ---------- */
+  #feed {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px 8px;
+    max-width: 760px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .empty-state {
+    color: var(--text-faint);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    margin-top: 40px;
+    line-height: 1.8;
+  }
+
+  .turn { margin-bottom: 30px; }
+
+  .query {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    color: var(--teal);
+    margin-bottom: 12px;
+  }
+  .query::before { content: "> "; color: var(--text-faint); }
+
+  .status-line {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-left: 2px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status-line .glyph { color: var(--brass); }
+
+  .answer {
+    font-size: 16.5px;
+    line-height: 1.68;
+    color: var(--text);
+    border-left: 2px solid var(--panel-border);
+    padding-left: 16px;
+  }
+  .answer.streaming { border-left-color: var(--brass-dim); }
+  .answer strong { color: var(--brass); font-weight: 600; }
+  .answer p { margin: 0 0 12px; }
+  .answer p:last-child { margin-bottom: 0; }
+
+  .answer.error { color: var(--rust); font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+
+  .sources {
+    margin-top: 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+  }
+  .sources summary {
+    cursor: pointer;
+    color: var(--brass);
+    list-style: none;
+  }
+  .sources summary::-webkit-details-marker { display: none; }
+  .sources summary::before { content: "▸ "; }
+  .sources[open] summary::before { content: "▾ "; }
+  .sources ul { margin: 8px 0 0; padding-left: 18px; color: var(--text-dim); }
+  .sources li { margin-bottom: 5px; }
+  .sources a { color: var(--text-dim); text-decoration: none; border-bottom: 1px solid var(--panel-border); }
+  .sources a:hover { color: var(--brass); border-bottom-color: var(--brass-dim); }
+
+  .cursor {
+    display: inline-block;
+    width: 7px; height: 15px;
+    background: var(--brass);
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: blink 1s step-start infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------- Composer ---------- */
+  .composer {
+    border-top: 1px solid var(--panel-border);
+    padding: 16px 32px 22px;
+  }
+  .composer-inner {
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    gap: 10px;
+  }
+
+  #input {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    padding: 12px 14px;
+    border-radius: 6px;
+    resize: none;
+  }
+  #input:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+  #input::placeholder { color: var(--text-faint); }
+
+  #send-btn {
+    background: var(--brass-dim);
+    border: none;
+    color: var(--bg);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 0 20px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #send-btn:hover:not(:disabled) { background: var(--brass); }
+  #send-btn:disabled { opacity: 0.4; cursor: default; }
+  #send-btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+  @media (max-width: 640px) {
+    body { grid-template-columns: 40px 1fr; }
+    .rail-label { display: none; }
+    header { padding: 16px 18px 12px; flex-wrap: wrap; gap: 6px; }
+    .tagline { display: none; }
+    #feed { padding: 18px 18px 8px; }
+    .composer { padding: 12px 18px 16px; }
+  }
+</style>
+</head>
+<body>
+
+  <aside class="rail">
+    <div class="rail-label">DEPTH</div>
+    <div class="gauge" id="gauge"></div>
+    <div class="rail-count" id="gauge-count">0</div>
+    <button class="rail-reset" id="reset-btn" title="Reset conversation">RESET</button>
+  </aside>
+
+  <main>
+    <header>
+      <div>
+        <span class="wordmark">delve<span class="dot">.</span></span>
+        <span class="tagline">conversational research engine</span>
+      </div>
+      <button id="export-btn" disabled>EXPORT REPORT</button>
+    </header>
+
+    <div id="feed">
+      <div class="empty-state" id="empty-state">
+        ask something that needs looking into.<br>
+        the agent decides on its own whether to search —<br>
+        watch the depth gauge light up when it does.
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="composer-inner">
+        <textarea id="input" rows="1" placeholder="ask delve something..."></textarea>
+        <button id="send-btn">SEND</button>
+      </div>
+    </div>
+  </main>
+
+<script>
+const API_BASE = window.location.origin;
+
+let sessionId = null;
+let searchCount = 0;
+let isStreaming = false;
+
+const feed = document.getElementById('feed');
+const emptyState = document.getElementById('empty-state');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send-btn');
+const exportBtn = document.getElementById('export-btn');
+const resetBtn = document.getElementById('reset-btn');
+const gauge = document.getElementById('gauge');
+const gaugeCount = document.getElementById('gauge-count');
+
+function addGaugeTick() {
+  searchCount += 1;
+  const tick = document.createElement('div');
+  tick.className = 'tick lit';
+  gauge.appendChild(tick);
+  gaugeCount.textContent = searchCount;
+}
+
+function resetGauge() {
+  searchCount = 0;
+  gauge.innerHTML = '';
+  gaugeCount.textContent = '0';
+}
+
+// Minimal, deliberately conservative markdown-to-HTML: bold and paragraphs
+// only. The model's replies use light markdown (**bold**, blank-line
+// paragraphs) — full markdown rendering isn't needed for this UI.
+function renderAnswerHTML(text) {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const bolded = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  const paragraphs = bolded.split(/\n\n+/).filter(p => p.trim());
+  return paragraphs.map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+}
+
+async function sendMessage() {
+  const message = input.value.trim();
+  if (!message || isStreaming) return;
+
+  emptyState.style.display = 'none';
+  isStreaming = true;
+  sendBtn.disabled = true;
+  input.value = '';
+  input.style.height = 'auto';
+
+  const turn = document.createElement('div');
+  turn.className = 'turn';
+
+  const queryEl = document.createElement('div');
+  queryEl.className = 'query';
+  queryEl.textContent = message;
+  turn.appendChild(queryEl);
+
+  const statusContainer = document.createElement('div');
+  turn.appendChild(statusContainer);
+
+  const answerEl = document.createElement('div');
+  answerEl.className = 'answer streaming';
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  answerEl.appendChild(cursor);
+  turn.appendChild(answerEl);
+
+  feed.appendChild(turn);
+  feed.scrollTop = feed.scrollHeight;
+
+  let rawText = '';
+
+  try {
+    const response = await fetch(`${API_BASE}/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, session_id: sessionId }),
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop(); // last piece may be incomplete, keep for next read
+
+      for (const raw of events) {
+        const line = raw.trim();
+        if (!line.startsWith('data: ')) continue;
+        const evt = JSON.parse(line.slice(6));
+
+        if (evt.type === 'session') {
+          sessionId = evt.session_id;
+          exportBtn.disabled = false;
+        } else if (evt.type === 'status') {
+          addGaugeTick();
+          const statusEl = document.createElement('div');
+          statusEl.className = 'status-line';
+          const isCache = evt.text.includes('cached');
+          statusEl.innerHTML = `<span class="glyph">${isCache ? '\u25C6' : '\u2692'}</span> ${evt.text.replace(/^[^\w]+/, '')}`;
+          statusContainer.appendChild(statusEl);
+        } else if (evt.type === 'token') {
+          rawText += evt.text;
+          answerEl.innerHTML = renderAnswerHTML(rawText);
+          answerEl.appendChild(cursor);
+        } else if (evt.type === 'sources' && evt.sources && evt.sources.length) {
+          const details = document.createElement('details');
+          details.className = 'sources';
+          const summary = document.createElement('summary');
+          summary.textContent = `SOURCES (${evt.sources.length})`;
+          details.appendChild(summary);
+          const list = document.createElement('ul');
+          evt.sources.forEach((s) => {
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+            a.href = s.url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = s.title || s.url;
+            li.appendChild(a);
+            list.appendChild(li);
+          });
+          details.appendChild(list);
+          turn.appendChild(details);
+        } else if (evt.type === 'error') {
+          answerEl.classList.add('error');
+          answerEl.textContent = evt.text;
+        } else if (evt.type === 'done') {
+          answerEl.classList.remove('streaming');
+          cursor.remove();
+        }
+        feed.scrollTop = feed.scrollHeight;
+      }
+    }
+  } catch (err) {
+    answerEl.classList.add('error');
+    answerEl.textContent = 'Connection lost. Is the server still running?';
+  } finally {
+    isStreaming = false;
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+async function resetConversation() {
+  if (sessionId) {
+    try {
+      await fetch(`${API_BASE}/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+    } catch (err) { /* session may already be gone server-side; proceed anyway */ }
+  }
+  feed.innerHTML = '';
+  feed.appendChild(emptyState);
+  emptyState.style.display = 'block';
+  resetGauge();
+  exportBtn.disabled = true;
+}
+
+async function exportReport() {
+  if (!sessionId) return;
+  const response = await fetch(`${API_BASE}/export/${sessionId}`);
+  if (!response.ok) return;
+  const text = await response.text();
+  const blob = new Blob([text], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `delve_report_${sessionId.slice(0, 8)}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+sendBtn.addEventListener('click', sendMessage);
+resetBtn.addEventListener('click', resetConversation);
+exportBtn.addEventListener('click', exportReport);
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+input.addEventListener('input', () => {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+});
+</script>
+</body>
+</html>

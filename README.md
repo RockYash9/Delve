@@ -95,7 +95,9 @@ No paid services, no cloud infrastructure, no framework overhead — every depen
 ```
 delve/
 ├── main.py                    # CLI entry point
-├── api.py                     # FastAPI backend entry point
+├── api.py                     # FastAPI backend + serves the frontend
+├── static/
+│   └── index.html              # single-file chat UI, served at "/"
 ├── config.py                  # env vars, model settings, validation
 ├── logging_config.py          # structured logging setup
 ├── requirements.txt
@@ -216,6 +218,12 @@ It's a POST endpoint rather than the browser-native `EventSource` (which only su
 
 ---
 
+## Frontend
+
+A single-file chat UI (`static/index.html`) — plain HTML/CSS/JS, no build step, no framework. FastAPI serves it directly at `/`, so running `uvicorn api:app` gives you both the API and a working chat interface at `http://127.0.0.1:8000` — one service, not two. It renders search activity as a live "depth gauge" that lights up per search, streams the answer in, and shows a collapsible sources list when the agent searched.
+
+---
+
 ## How the semantic cache works
 
 Every time the agent searches the web, the query and result are embedded using a local model and stored in SQLite. On future searches, the new query is embedded and compared against everything previously cached using cosine similarity. If something sufficiently close (similarity ≥ 0.75) already exists, it's reused instantly instead of spending a live API call — meaning **the tool gets faster and cheaper to run the more you use it**, and accumulates a genuine local knowledge base over time rather than staying purely a stateless search wrapper.
@@ -258,10 +266,10 @@ Logs are written to `logs/delve.log` (rotated automatically) — useful for unde
 - [x] Structured logging separate from user-facing output
 - [x] FastAPI backend wrapping the agent, session-based
 - [x] Streaming responses (Server-Sent Events)
+- [x] Web frontend
 - [ ] Source credibility scoring / filtering
 - [ ] Persistent user profiles across sessions
 - [ ] Configurable cache expiration for time-sensitive topics
-- [ ] Web frontend
 - [ ] Free public deployment
 
 ---

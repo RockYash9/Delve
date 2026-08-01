@@ -55,6 +55,15 @@ def test_health_check():
     assert response.json() == {"status": "ok"}
 
 
+def test_root_serves_the_frontend_not_a_404():
+    client = TestClient(api.app)
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Delve" in response.text
+
+
 def test_chat_creates_new_session(monkeypatch):
     client = _client(monkeypatch)
 

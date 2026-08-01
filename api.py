@@ -17,6 +17,7 @@ import uuid
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from logging_config import setup_logging
@@ -93,6 +94,7 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
       {"type": "session", "session_id": "..."}   — sent first
       {"type": "status", "text": "..."}          — search activity
       {"type": "token", "text": "..."}           — a chunk of answer text
+      {"type": "sources", "sources": [...]}      — this turn's citations
       {"type": "error", "text": "..."}           — on overload
       {"type": "done"}                            — stream finished
 
@@ -134,3 +136,13 @@ def export(session_id: str) -> str:
         raise HTTPException(status_code=400, detail="Nothing to export yet")
 
     return reports.build_report(transcript, _sessions[session_id].get_sources())
+
+
+# Serves the chat UI (static/index.html) at "/" and any other static
+# assets under static/. Mounted LAST and at the root path so the
+# explicit API routes above still take priority for their exact paths
+# (Starlette checks routes in registration order) — everything else
+# falls through to static files. This also means GET / now serves the
+# frontend instead of a 404, and there's one service to run/deploy
+# instead of two separate frontend/backend deployments.
+app.mount("/", StaticFiles(directory="static", html=True), name="frontend")

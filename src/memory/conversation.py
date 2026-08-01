@@ -9,6 +9,7 @@ refer back to earlier parts of the conversation instead of every
 message being treated in isolation.
 """
 
+import logging
 from datetime import date
 
 from google import genai
@@ -16,6 +17,8 @@ from google.genai import types
 
 import config
 from src.tools.search import make_web_search_tool
+
+logger = logging.getLogger(__name__)
 
 
 def _system_instruction() -> str:
@@ -56,15 +59,29 @@ class Conversation:
     def send(self, message: str) -> str:
         """Send a message within this conversation and return the reply."""
         response = self._chat.send_message(message)
-        if response.text is None:
-            # Can happen if the response was safety-filtered or contained
-            # only a function call with no accompanying text. Rare, but a
-            # silent None would be a confusing crash three layers up.
-            return (
-                "I wasn't able to generate a text response to that — try "
-                "rephrasing your question."
-            )
-        return response.text
+        if response.text:
+            return response.text
+
+        # `response.text` can be an empty string, not just None — a
+        # falsy-but-not-None value that a naive `is None` check misses
+        # entirely (this was a real bug caught during testing). It shows
+        # up specifically after a tool call: the model occasionally
+        # completes generation with genuinely empty text. One retry with
+        # a short nudge — same session, so already-fetched search
+        # results stay available — reliably resolves it in practice
+        # rather than leaving the client with silence.
+        logger.warning("empty_response_retrying_with_nudge")
+        retry_response = self._chat.send_message(
+            "Please provide your complete answer now, based on the "
+            "information you already have."
+        )
+        if retry_response.text:
+            return retry_response.text
+
+        return (
+            "I wasn't able to generate a text response to that — try "
+            "rephrasing your question."
+        )
 
     def send_stream(self, message: str):
         """Send a message and yield structured events for a live-feeling reply.
@@ -99,6 +116,7 @@ class Conversation:
                 yield {"type": "status", "text": self.status_events[flushed_count]}
                 flushed_count += 1
 
+        sources_before = len(self.sources)
         reply = self.send(message)
 
         # By the time send() returns, any searches it triggered have
@@ -110,6 +128,22 @@ class Conversation:
         for i, word in enumerate(reply.split(" ")):
             piece = word if i == 0 else " " + word
             yield {"type": "token", "text": piece}
+
+        # Only this turn's new sources, deduplicated by URL (a cache hit
+        # or multiple searches can surface the same page more than
+        # once) — self.sources accumulates across the whole
+        # conversation, but a client rendering "sources for this
+        # answer" needs just what was found just now.
+        seen_urls: set[str] = set()
+        new_sources = []
+        for source in self.sources[sources_before:]:
+            if source["url"] in seen_urls:
+                continue
+            seen_urls.add(source["url"])
+            new_sources.append(source)
+
+        if new_sources:
+            yield {"type": "sources", "sources": new_sources}
 
     def turn_count(self) -> int:
         """How many messages (user + model) are in this conversation so far."""

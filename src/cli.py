@@ -79,4 +79,3 @@ def run() -> None:
             answer = agent.ask(user_input)
 
         console.print(Panel(answer, title="Delve", border_style="cyan"))
-        
