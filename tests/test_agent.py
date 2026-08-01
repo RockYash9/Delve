@@ -17,8 +17,9 @@ from src.agent import Agent
 class _FakeConversation:
     """Stand-in for Conversation that fails `fail_times` calls, then succeeds."""
 
-    def __init__(self, fail_times: int = 0):
+    def __init__(self, fail_times: int = 0, fail_immediately: bool = False):
         self.fail_times = fail_times
+        self.fail_immediately = fail_immediately
         self.calls = 0
 
     def send(self, message: str) -> str:
@@ -26,6 +27,11 @@ class _FakeConversation:
         if self.calls <= self.fail_times:
             raise errors.ServerError(503, {"error": {"message": "overloaded"}})
         return "final answer"
+
+    def send_stream(self, message: str):
+        if self.fail_immediately:
+            raise errors.ServerError(503, {"error": {"message": "overloaded"}})
+        yield {"type": "token", "text": "streamed answer"}
 
     def get_transcript(self) -> list[tuple[str, str]]:
         return []  # not exercised by these tests
@@ -76,3 +82,25 @@ def test_reset_creates_a_new_conversation(monkeypatch):
     agent.reset()
 
     assert len(created) == 2  # one at Agent() construction, one at reset()
+
+
+def test_ask_stream_yields_events_from_conversation(monkeypatch):
+    monkeypatch.setattr("src.agent.Conversation", lambda: _FakeConversation())
+    agent = Agent()
+
+    events = list(agent.ask_stream("hello"))
+
+    assert events == [{"type": "token", "text": "streamed answer"}]
+
+
+def test_ask_stream_yields_error_event_on_overload(monkeypatch):
+    monkeypatch.setattr(
+        "src.agent.Conversation", lambda: _FakeConversation(fail_immediately=True)
+    )
+    agent = Agent()
+
+    events = list(agent.ask_stream("hello"))
+
+    assert len(events) == 1
+    assert events[0]["type"] == "error"
+    assert "overload" in events[0]["text"].lower()

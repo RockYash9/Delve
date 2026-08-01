@@ -35,13 +35,18 @@ class Conversation:
         # (brick 7's API) can't leak citations between each other.
         self.sources: list[dict] = []
 
+        # Short status messages recorded whenever the search tool runs
+        # (e.g. "🔍 searching: ..."). Brick 8's streaming reads this to
+        # surface search activity to the client in real time.
+        self.status_events: list[str] = []
+
         self._client = genai.Client(api_key=config.GEMINI_API_KEY)
         self._chat = self._client.chats.create(
             model=config.MODEL_NAME,
             config=types.GenerateContentConfig(
                 system_instruction=_system_instruction(),
                 max_output_tokens=config.MAX_TOKENS,
-                tools=[make_web_search_tool(self.sources)],
+                tools=[make_web_search_tool(self.sources, self.status_events)],
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(
                     maximum_remote_calls=5,
                 ),
@@ -60,6 +65,52 @@ class Conversation:
                 "rephrasing your question."
             )
         return response.text
+
+    def send_stream(self, message: str):
+        """Send a message and yield structured events as the reply streams in.
+
+        Yields dicts of the form {"type": "status"|"token", "text": ...}.
+        Status events surface search activity (recorded in status_events
+        by the search tool while the SDK runs it internally, mid-stream)
+        interleaved with the actual answer text as it's generated, so a
+        client can show "searching..." before the text that resulted
+        from it rather than only seeing a long pause.
+        """
+        flushed_count = 0
+        any_token_yielded = False
+
+        def flush_pending_status():
+            nonlocal flushed_count
+            while flushed_count < len(self.status_events):
+                yield {"type": "status", "text": self.status_events[flushed_count]}
+                flushed_count += 1
+
+        for chunk in self._chat.send_message_stream(message):
+            yield from flush_pending_status()
+            if chunk.text:
+                any_token_yielded = True
+                yield {"type": "token", "text": chunk.text}
+
+        # Any status events recorded after the last chunk was produced
+        # (e.g. a search that ran right before the stream closed) still
+        # need to reach the client.
+        yield from flush_pending_status()
+
+        if not any_token_yielded:
+            # Known SDK/API quirk (as of Gemini 3.5 Flash, mid-2026): when
+            # automatic function calling runs a tool during a streamed
+            # response, the final answer text sometimes never arrives as
+            # a streamed chunk at all — even though the SDK *does* still
+            # correctly record it in the chat's history once the stream
+            # finishes. Rather than leave the client with an empty reply,
+            # recover the text from history instead.
+            history = self._chat.get_history()
+            if history and history[-1].role == "model":
+                fallback_text = "".join(
+                    part.text for part in (history[-1].parts or []) if part.text
+                )
+                if fallback_text:
+                    yield {"type": "token", "text": fallback_text}
 
     def turn_count(self) -> int:
         """How many messages (user + model) are in this conversation so far."""

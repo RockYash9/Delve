@@ -10,12 +10,13 @@ Run with: uvicorn api:app --reload
 Docs at:  http://127.0.0.1:8000/docs  (FastAPI generates this automatically)
 """
 
+import json
 import logging
 import uuid
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from logging_config import setup_logging
@@ -81,6 +82,35 @@ def chat(request: ChatRequest) -> ChatResponse:
     session_id, agent = _get_or_create_agent(request.session_id)
     reply = agent.ask(request.message)
     return ChatResponse(session_id=session_id, reply=reply)
+
+
+@app.post("/chat/stream")
+def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """Like /chat, but streams the reply as Server-Sent Events instead of
+    waiting for the full answer.
+
+    Event shapes sent as `data: <json>\\n\\n` lines:
+      {"type": "session", "session_id": "..."}   — sent first
+      {"type": "status", "text": "..."}          — search activity
+      {"type": "token", "text": "..."}           — a chunk of answer text
+      {"type": "error", "text": "..."}           — on overload
+      {"type": "done"}                            — stream finished
+
+    Deliberately a POST endpoint rather than the browser-native
+    EventSource (which only supports GET) — a session_id and message
+    body are needed per request, so the frontend will consume this with
+    fetch() + a stream reader instead. That's a standard, well-supported
+    pattern for SSE-over-POST.
+    """
+    session_id, agent = _get_or_create_agent(request.session_id)
+
+    def event_stream():
+        yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+        for event in agent.ask_stream(request.message):
+            yield f"data: {json.dumps(event)}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.post("/reset")

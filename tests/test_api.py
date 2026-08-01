@@ -6,6 +6,8 @@ Agent is entirely replaced with a fake — these test the HTTP layer
 agent's own logic, which already has its own tests in test_agent.py.
 """
 
+import json
+
 from fastapi.testclient import TestClient
 
 import api
@@ -23,6 +25,9 @@ class _FakeAgent:
         reply = f"echo: {message}"
         self._transcript.append(("model", reply))
         return reply
+
+    def ask_stream(self, message: str):
+        yield {"type": "token", "text": f"echo: {message}"}
 
     def reset(self) -> None:
         self.reset_called = True
@@ -133,3 +138,30 @@ def test_export_returns_markdown_with_transcript(monkeypatch):
 
     assert response.status_code == 200
     assert "hello there" in response.text
+
+
+def test_chat_stream_returns_sse_events(monkeypatch):
+    client = _client(monkeypatch)
+
+    response = client.post("/chat/stream", json={"message": "hello"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+
+    body = response.text
+    assert '"type": "session"' in body
+    assert '"type": "token"' in body
+    assert '"type": "done"' in body
+    assert "echo: hello" in body
+
+
+def test_chat_stream_new_session_gets_a_session_id(monkeypatch):
+    client = _client(monkeypatch)
+
+    response = client.post("/chat/stream", json={"message": "hi"})
+    lines = [line for line in response.text.split("\n\n") if line.strip()]
+    first_event = json.loads(lines[0].removeprefix("data: "))
+
+    assert first_event["type"] == "session"
+    assert "session_id" in first_event
+    assert len(api._sessions) == 1
