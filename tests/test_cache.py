@@ -1,8 +1,8 @@
 """
 Tests for src/storage/cache.py.
 
-Uses a small deterministic fake embedder instead of the real
-sentence-transformers model — this is a unit test for the caching and
+Uses a small deterministic fake embedder instead of calling the real
+Gemini embedding API — this is a unit test for the caching and
 similarity-threshold LOGIC, not a test of embedding quality itself.
 Each test gets its own throwaway SQLite file via the isolated_db fixture,
 so tests never touch or depend on your real delve_cache.db.

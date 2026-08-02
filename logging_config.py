@@ -44,4 +44,3 @@ def setup_logging(level: int = logging.INFO) -> None:
     # own log file stays readable and actually useful.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("sentence_transformers").setLevel(logging.WARNING)

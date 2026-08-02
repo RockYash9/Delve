@@ -1,10 +1,10 @@
 """
 Tests for src/storage/embeddings.py — only the pure-math parts.
 
-Deliberately does NOT test embed_text() itself, since that requires
-downloading and running the real sentence-transformers model, which is
-slow and needs network access. That's fine to skip here: cosine_similarity
-is where the actual logic lives, and it's fully testable in isolation.
+Deliberately does NOT test embed_text() itself, since that requires a
+real network call to the Gemini embedding API. That's fine to skip
+here: cosine_similarity is where the actual logic lives, and it's
+fully testable in isolation.
 """
 
 import numpy as np

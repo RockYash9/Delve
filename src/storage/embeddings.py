@@ -1,34 +1,55 @@
 """
-Local embedding model.
+Embedding model — via the Gemini API, not a local model.
 
-Runs entirely on your machine — no API calls, no per-use cost. This is
-what lets brick 4's cache do *semantic* matching ("EV tax credits" ~=
-"electric vehicle incentives") rather than exact keyword matching.
+This originally ran a local sentence-transformers model, but that
+requires PyTorch, and PyTorch alone exceeds the 512MB memory limit on
+Render's free tier — the app would get OOM-killed on deploy before it
+could even serve a request. Switching to Gemini's hosted embedding API
+(gemini-embedding-001) removes that dependency entirely: no local ML
+model, no PyTorch, and it uses the same GEMINI_API_KEY already
+required everywhere else in this project, at no extra cost within the
+free tier (~1,500 embedding requests/day as of when this was written).
 
-The model loads lazily and only once per process, since loading it is
-the slow part (a few seconds); encoding individual pieces of text
-after that is fast.
+The tradeoff: embeddings now require a network call instead of running
+fully offline. Given the search tool already requires network access
+for every query anyway, this doesn't change the app's actual
+dependency on connectivity.
 """
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from google import genai
+from google.genai.types import EmbedContentConfig
 
-_model = None
+import config
+
+_client: genai.Client | None = None
+
+# 768 (vs. the model's default 3072) via Matryoshka Representation
+# Learning truncation — meaningfully smaller to store per cached
+# chunk, with only a marginal quality tradeoff for this use case
+# (matching short queries against each other, not high-precision
+# retrieval over a huge corpus).
+EMBEDDING_DIMENSIONS = 768
 
 
-def _get_model() -> SentenceTransformer:
-    global _model
-    if _model is None:
-        # all-MiniLM-L6-v2: small, fast, good enough quality for this use
-        # case, and light enough to run comfortably on a CPU.
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-    return _model
+def _get_client() -> genai.Client:
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=config.GEMINI_API_KEY)
+    return _client
 
 
 def embed_text(text: str) -> np.ndarray:
     """Convert text into a vector capturing its semantic meaning."""
-    model = _get_model()
-    return model.encode(text, convert_to_numpy=True)
+    client = _get_client()
+    response = client.models.embed_content(
+        model="gemini-embedding-001",
+        contents=text,
+        config=EmbedContentConfig(output_dimensionality=EMBEDDING_DIMENSIONS),
+    )
+    if not response.embeddings or response.embeddings[0].values is None:
+        raise RuntimeError("Gemini's embedding API returned no embedding for this text.")
+    return np.array(response.embeddings[0].values)
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:

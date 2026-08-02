@@ -80,7 +80,7 @@ The core design principle: **the LLM is the orchestrator, not the pipeline.** Ge
 | Language | Python 3.12 | |
 | LLM / agent reasoning | [Google Gemini API](https://ai.google.dev) (`gemini-3.5-flash-lite`) | Free tier, native function calling, strong reasoning-to-cost ratio |
 | Web search | [Tavily API](https://tavily.com) | Purpose-built for LLM agents — clean, pre-extracted content instead of raw HTML |
-| Local embeddings | [sentence-transformers](https://www.sbert.net/) (`all-MiniLM-L6-v2`) | Runs fully offline/local, no API cost, powers semantic cache matching |
+| Embeddings | Gemini API (`gemini-embedding-001`) | No local ML model or PyTorch — keeps memory footprint small enough for free-tier hosting, uses the same Gemini key already required elsewhere |
 | Local storage | SQLite | Zero-config persistent cache for the growing knowledge base |
 | CLI / UX | [rich](https://github.com/Textualize/rich) | Formatted panels, live status spinners, clean terminal output |
 | Web API | [FastAPI](https://fastapi.tiangolo.com) + [uvicorn](https://www.uvicorn.org) | Session-based HTTP access to the same agent that powers the CLI |
@@ -114,7 +114,7 @@ delve/
     ├── memory/
     │   └── conversation.py     # wraps a persistent Gemini chat session
     ├── storage/
-    │   ├── embeddings.py       # local embedding model wrapper
+    │   ├── embeddings.py       # embedding calls via the Gemini API
     │   └── cache.py             # SQLite-backed semantic cache
     └── reports.py               # builds exportable markdown reports + citations
 ```
@@ -138,8 +138,6 @@ source .venv/bin/activate        # Windows: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-> First install pulls in PyTorch (for local embeddings) — this is a genuinely large download and can take a few minutes. That's expected.
-
 ### 3. Get free API keys (no credit card required for either)
 
 | Key | Where to get it | Free tier |
@@ -158,7 +156,7 @@ cp .env.example .env
 python main.py
 ```
 
-**Note:** the very first search will also download the local embedding model (~90MB, one-time, cached afterward automatically).
+**Note:** `jupyter` (used by the optional scratch notebook) is dev-only — install `requirements-dev.txt` if you want it. It's not needed to run the app.
 
 ---
 
@@ -226,7 +224,7 @@ A single-file chat UI (`static/index.html`) — plain HTML/CSS/JS, no build step
 
 ## How the semantic cache works
 
-Every time the agent searches the web, the query and result are embedded using a local model and stored in SQLite. On future searches, the new query is embedded and compared against everything previously cached using cosine similarity. If something sufficiently close (similarity ≥ 0.75) already exists, it's reused instantly instead of spending a live API call — meaning **the tool gets faster and cheaper to run the more you use it**, and accumulates a genuine local knowledge base over time rather than staying purely a stateless search wrapper.
+Every time the agent searches the web, the query and result are embedded via the Gemini API and stored in SQLite. On future searches, the new query is embedded and compared against everything previously cached using cosine similarity. If something sufficiently close (similarity ≥ 0.75) already exists, it's reused instantly instead of spending a Tavily API call — meaning **the tool gets faster and cheaper to run the more you use it**, and accumulates a genuine local knowledge base over time rather than staying purely a stateless search wrapper.
 
 ---
 
@@ -242,7 +240,7 @@ ruff check .        # lint
 mypy .               # type check
 ```
 
-Tests mock all external APIs (Gemini, Tavily, the embedding model) — the suite runs fully offline and never needs real API keys, so it's safe to run in CI or anywhere else.
+Tests mock all external APIs (Gemini, Tavily, embeddings) — the suite runs fully offline and never needs real API keys or network access, so it's safe to run in CI or anywhere else.
 
 Logs are written to `logs/delve.log` (rotated automatically) — useful for understanding agent behavior after the fact, separate from the live terminal UI.
 
@@ -262,6 +260,8 @@ All configurable via environment variables (see `.env.example`), all with sensib
 | `ALLOWED_ORIGINS` | `*` | CORS allowlist. Fine for local dev; set this to the actual frontend's domain once deployed (brick 11). |
 
 ## Known limitations
+
+- The cache's similarity threshold (0.75) was originally tuned against a different embedding model (local sentence-transformers) before the switch to Gemini's embedding API for memory reasons — it's a reasonable starting point but hasn't been re-validated against Gemini's embedding space specifically. Watch cache hit/miss behavior in practice and adjust `SIMILARITY_THRESHOLD` in `src/storage/cache.py` if it seems too strict or too loose.
 
 - Gemini's free-tier models are occasionally retired or renamed by Google with little notice — if you hit a `404` on the configured model, check [ai.google.dev/gemini-api/docs/changelog](https://ai.google.dev/gemini-api/docs/changelog) and update `MODEL_NAME` in `config.py`.
 - **Gemini's raw streaming API is unreliable with tools attached**: `gemini-3.5-flash` has a confirmed bug (mid-2026) where combining true token streaming with automatic function calling can cause the model's final answer to come back genuinely empty whenever a tool runs mid-response — not just a display glitch, the generation itself stops with no text. Since this agent's search tool is attached to every conversation, that isn't a rare edge case here. `/chat/stream` works around it by getting the complete answer via the proven-reliable non-streaming path, then delivering it to the client in word-sized chunks — search status still arrives in true real time, but the final answer is "simulated" streaming rather than raw network-level token streaming.
