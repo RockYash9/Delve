@@ -25,6 +25,31 @@ MODEL_NAME = "gemini-3.5-flash-lite"
 
 MAX_TOKENS = 1024
 
+# ---------- Production-readiness settings (brick 10) ----------
+
+# Rate limit applied to the expensive endpoints (/chat, /chat/stream) —
+# each one triggers real Gemini/Tavily API calls, so this protects the
+# free-tier quotas from being burned by accidental loops or abuse.
+# Format: slowapi/limits syntax, e.g. "20/minute", "5/second".
+RATE_LIMIT = os.getenv("RATE_LIMIT", "20/minute")
+
+# How long a cached search result stays eligible for reuse before it's
+# treated as stale and a fresh search is done instead. Prevents serving
+# outdated info on fast-changing topics (news, prices) indefinitely.
+CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "24"))
+
+# How long an API session can sit idle before it's eligible for cleanup,
+# to cap memory growth on a long-running server (sessions currently
+# live in memory only — see api.py).
+SESSION_IDLE_TTL_MINUTES = int(os.getenv("SESSION_IDLE_TTL_MINUTES", "120"))
+
+# CORS: comma-separated list of allowed origins, or "*" for all (fine
+# for local development, NOT recommended once a real frontend domain
+# exists — brick 11 should set this to that exact domain).
+ALLOWED_ORIGINS = [
+    origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "*").split(",")
+]
+
 
 def validate_config() -> None:
     """Fail fast and clearly if required keys are missing."""

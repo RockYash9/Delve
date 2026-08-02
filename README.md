@@ -246,11 +246,22 @@ Tests mock all external APIs (Gemini, Tavily, the embedding model) — the suite
 
 Logs are written to `logs/delve.log` (rotated automatically) — useful for understanding agent behavior after the fact, separate from the live terminal UI.
 
+## Production settings
+
+All configurable via environment variables (see `.env.example`), all with sensible defaults:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `RATE_LIMIT` | `20/minute` | Applied to `/chat` and `/chat/stream` (the endpoints that call Gemini/Tavily) — protects the free-tier quotas from accidental loops or abuse. `/health` and `/export` are unlimited. |
+| `CACHE_TTL_HOURS` | `24` | How long a cached search result stays eligible for reuse before it's treated as stale and a fresh search happens instead. |
+| `SESSION_IDLE_TTL_MINUTES` | `120` | How long an API session can sit idle before it's purged, capping memory growth on a long-running server. Purged lazily on the next new session lookup, not via a background scheduler. |
+| `ALLOWED_ORIGINS` | `*` | CORS allowlist. Fine for local dev; set this to the actual frontend's domain once deployed (brick 11). |
+
 ## Known limitations
 
 - Gemini's free-tier models are occasionally retired or renamed by Google with little notice — if you hit a `404` on the configured model, check [ai.google.dev/gemini-api/docs/changelog](https://ai.google.dev/gemini-api/docs/changelog) and update `MODEL_NAME` in `config.py`.
 - **Gemini's raw streaming API is unreliable with tools attached**: `gemini-3.5-flash` has a confirmed bug (mid-2026) where combining true token streaming with automatic function calling can cause the model's final answer to come back genuinely empty whenever a tool runs mid-response — not just a display glitch, the generation itself stops with no text. Since this agent's search tool is attached to every conversation, that isn't a rare edge case here. `/chat/stream` works around it by getting the complete answer via the proven-reliable non-streaming path, then delivering it to the client in word-sized chunks — search status still arrives in true real time, but the final answer is "simulated" streaming rather than raw network-level token streaming.
-- The semantic cache has no expiration — for fast-changing topics (news, prices), a stale cached result could be served if it's semantically close enough. A time-based cache invalidation policy is a natural next improvement.
+- The semantic cache now expires entries after `CACHE_TTL_HOURS` (default 24h), but there's no per-topic tuning — a genuinely fast-moving story could still serve a same-day cached result. A shorter TTL for detected "news"-type queries would be a natural next refinement.
 - Free-tier rate limits apply on both Gemini and Tavily; heavy usage may require upgrading either.
 
 ---
@@ -267,9 +278,9 @@ Logs are written to `logs/delve.log` (rotated automatically) — useful for unde
 - [x] FastAPI backend wrapping the agent, session-based
 - [x] Streaming responses (Server-Sent Events)
 - [x] Web frontend
+- [x] Production-readiness: rate limiting, cache TTL, idle-session cleanup, configurable CORS
 - [ ] Source credibility scoring / filtering
 - [ ] Persistent user profiles across sessions
-- [ ] Configurable cache expiration for time-sensitive topics
 - [ ] Free public deployment
 
 ---

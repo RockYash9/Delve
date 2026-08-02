@@ -7,10 +7,23 @@ agent's own logic, which already has its own tests in test_agent.py.
 """
 
 import json
+from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 import api
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """The rate limiter (api.limiter) is a module-level singleton shared
+    across every test in this file — without resetting it, requests
+    made in one test would count toward the limit in unrelated later
+    tests, causing spurious 429s. Reset before every test instead.
+    """
+    api.limiter.reset()
+    yield
 
 
 class _FakeAgent:
@@ -52,7 +65,9 @@ def test_health_check():
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert "active_sessions" in body
 
 
 def test_root_serves_the_frontend_not_a_404():
@@ -174,3 +189,58 @@ def test_chat_stream_new_session_gets_a_session_id(monkeypatch):
     assert first_event["type"] == "session"
     assert "session_id" in first_event
     assert len(api._sessions) == 1
+
+
+def test_rate_limit_blocks_requests_beyond_the_configured_limit(monkeypatch):
+    monkeypatch.setattr(api, "Agent", _FakeAgent)
+    api._sessions.clear()
+    monkeypatch.setattr(api.config, "RATE_LIMIT", "3/minute")
+    api.limiter.reset()
+    client = TestClient(api.app)
+
+    responses = [client.post("/chat", json={"message": "hi"}) for _ in range(4)]
+
+    # First 3 succeed (the configured limit), the 4th is rejected.
+    assert [r.status_code for r in responses[:3]] == [200, 200, 200]
+    assert responses[3].status_code == 429
+
+
+def test_rate_limit_does_not_apply_to_health_check(monkeypatch):
+    monkeypatch.setattr(api, "Agent", _FakeAgent)
+    monkeypatch.setattr(api.config, "RATE_LIMIT", "1/minute")
+    api.limiter.reset()
+    client = TestClient(api.app)
+
+    responses = [client.get("/health") for _ in range(5)]
+
+    assert all(r.status_code == 200 for r in responses)
+
+
+def test_stale_sessions_are_purged_on_next_lookup(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(api.config, "SESSION_IDLE_TTL_MINUTES", 30)
+
+    session_id = client.post("/chat", json={"message": "hello"}).json()["session_id"]
+    assert session_id in api._sessions
+
+    # Simulate this session having gone idle well past the TTL.
+    api._session_last_used[session_id] = datetime.now(UTC) - timedelta(hours=1)
+
+    # Any new lookup triggers the lazy purge — a fresh session request
+    # is enough to exercise it.
+    client.post("/chat", json={"message": "a different question"})
+
+    assert session_id not in api._sessions
+
+
+def test_recently_active_sessions_are_not_purged(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(api.config, "SESSION_IDLE_TTL_MINUTES", 30)
+
+    session_id = client.post("/chat", json={"message": "hello"}).json()["session_id"]
+
+    # Well within the TTL — should survive a purge pass.
+    api._session_last_used[session_id] = datetime.now(UTC) - timedelta(minutes=5)
+    client.post("/chat", json={"message": "another question"})
+
+    assert session_id in api._sessions

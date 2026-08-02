@@ -13,13 +13,19 @@ Docs at:  http://127.0.0.1:8000/docs  (FastAPI generates this automatically)
 import json
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 
+import config
 from logging_config import setup_logging
 from src import reports
 from src.agent import Agent
@@ -29,21 +35,33 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Delve API", version="0.1.0")
 
-# Wide open for local development. Brick 11 (deployment) will restrict
-# this to the actual frontend's domain instead of allowing everything.
+# CORS: configurable via ALLOWED_ORIGINS env var. "*" (the default) is
+# fine for local development; brick 11's deployment should set this to
+# the actual frontend's exact domain instead of allowing everything.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Rate limiting: protects the free-tier Gemini/Tavily quotas from being
+# burned by accidental loops or abuse. Keyed by client IP. Applied only
+# to the endpoints that actually trigger external API calls — /health
+# and /export are local-only and stay unlimited.
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_middleware(SlowAPIMiddleware)
+
 # In-memory session store: session_id -> Agent instance.
-# Scope of this brick: sessions live only as long as this process does
-# — restarting the server loses all conversations. A later brick moves
-# this to persistent storage; that's an intentional, sequenced tradeoff,
-# not an oversight.
+# Sessions live only as long as this process does — restarting the
+# server loses all conversations. A later brick may move this to
+# persistent storage; that's an intentional, sequenced tradeoff, not
+# an oversight. _session_last_used backs the idle-session cleanup
+# below, which caps memory growth on a long-running server.
 _sessions: dict[str, Agent] = {}
+_session_last_used: dict[str, datetime] = {}
 
 
 class ChatRequest(BaseModel):
@@ -60,13 +78,38 @@ class SessionRequest(BaseModel):
     session_id: str
 
 
+def _purge_stale_sessions() -> None:
+    """Drop sessions idle longer than SESSION_IDLE_TTL_MINUTES.
+
+    Called lazily on each new session lookup rather than via a
+    background scheduler — simple, dependency-free, and sufficient
+    for this scale: memory is bounded by "active sessions since the
+    last cleanup pass" rather than growing forever.
+    """
+    cutoff = datetime.now(UTC) - timedelta(minutes=config.SESSION_IDLE_TTL_MINUTES)
+    stale_ids = [
+        session_id
+        for session_id, last_used in _session_last_used.items()
+        if last_used < cutoff
+    ]
+    for session_id in stale_ids:
+        _sessions.pop(session_id, None)
+        _session_last_used.pop(session_id, None)
+    if stale_ids:
+        logger.info("purged_stale_sessions count=%d", len(stale_ids))
+
+
 def _get_or_create_agent(session_id: str | None) -> tuple[str, Agent]:
     """Look up an existing session, or start a new one."""
+    _purge_stale_sessions()
+
     if session_id and session_id in _sessions:
+        _session_last_used[session_id] = datetime.now(UTC)
         return session_id, _sessions[session_id]
 
     new_id = session_id or str(uuid.uuid4())
     _sessions[new_id] = Agent()
+    _session_last_used[new_id] = datetime.now(UTC)
     logger.info("session_created session_id=%s", new_id)
     return new_id, _sessions[new_id]
 
@@ -74,19 +117,21 @@ def _get_or_create_agent(session_id: str | None) -> tuple[str, Agent]:
 @app.get("/health")
 def health() -> dict:
     """Basic liveness check — used by hosting platforms and monitoring."""
-    return {"status": "ok"}
+    return {"status": "ok", "active_sessions": len(_sessions)}
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+@limiter.limit(lambda: config.RATE_LIMIT)
+def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     """Send a message within a session (new or existing) and get a reply."""
-    session_id, agent = _get_or_create_agent(request.session_id)
-    reply = agent.ask(request.message)
+    session_id, agent = _get_or_create_agent(payload.session_id)
+    reply = agent.ask(payload.message)
     return ChatResponse(session_id=session_id, reply=reply)
 
 
 @app.post("/chat/stream")
-def chat_stream(request: ChatRequest) -> StreamingResponse:
+@limiter.limit(lambda: config.RATE_LIMIT)
+def chat_stream(request: Request, payload: ChatRequest) -> StreamingResponse:
     """Like /chat, but streams the reply as Server-Sent Events instead of
     waiting for the full answer.
 
@@ -100,15 +145,15 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 
     Deliberately a POST endpoint rather than the browser-native
     EventSource (which only supports GET) — a session_id and message
-    body are needed per request, so the frontend will consume this with
+    body are needed per request, so the frontend consumes this with
     fetch() + a stream reader instead. That's a standard, well-supported
     pattern for SSE-over-POST.
     """
-    session_id, agent = _get_or_create_agent(request.session_id)
+    session_id, agent = _get_or_create_agent(payload.session_id)
 
     def event_stream():
         yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
-        for event in agent.ask_stream(request.message):
+        for event in agent.ask_stream(payload.message):
             yield f"data: {json.dumps(event)}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
@@ -116,12 +161,13 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 
 
 @app.post("/reset")
-def reset(request: SessionRequest) -> dict:
+def reset(payload: SessionRequest) -> dict:
     """Clear a session's conversation memory."""
-    if request.session_id not in _sessions:
+    if payload.session_id not in _sessions:
         raise HTTPException(status_code=404, detail="Unknown session_id")
-    _sessions[request.session_id].reset()
-    logger.info("session_reset session_id=%s", request.session_id)
+    _sessions[payload.session_id].reset()
+    _session_last_used[payload.session_id] = datetime.now(UTC)
+    logger.info("session_reset session_id=%s", payload.session_id)
     return {"status": "reset"}
 
 

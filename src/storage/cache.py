@@ -11,10 +11,12 @@ staying purely a live-search wrapper.
 
 import json
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 
+import config
 from src.storage.embeddings import cosine_similarity, embed_text
 
 # Lives at the project root, next to main.py. Already covered by
@@ -68,19 +70,32 @@ def store_result(query: str, title: str, url: str, content: str) -> None:
 def find_similar(query: str, top_k: int = 5) -> list[tuple[float, str, str, str]]:
     """Return cached (score, title, url, content) tuples similar to query.
 
-    Only returns chunks at or above SIMILARITY_THRESHOLD, best matches
-    first. Empty list means "nothing close enough — go search live."
+    Only returns chunks at or above SIMILARITY_THRESHOLD AND within
+    CACHE_TTL_HOURS of being fetched, best matches first. A stale entry
+    is treated the same as a miss — the caller does a fresh search
+    instead — so fast-changing topics (news, prices) don't get served
+    outdated cached info indefinitely. Empty list means "nothing usable
+    — go search live."
     """
     conn = _get_connection()
-    rows = conn.execute("SELECT title, url, content, embedding FROM chunks").fetchall()
+    rows = conn.execute(
+        "SELECT title, url, content, embedding, fetched_at FROM chunks"
+    ).fetchall()
     conn.close()
 
     if not rows:
         return []
 
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(
+        hours=config.CACHE_TTL_HOURS
+    )
     query_embedding = embed_text(query)
     scored = []
-    for title, url, content, embedding_json in rows:
+    for title, url, content, embedding_json, fetched_at in rows:
+        fetched_time = datetime.strptime(fetched_at, "%Y-%m-%d %H:%M:%S")
+        if fetched_time < cutoff:
+            continue  # stale — force a fresh search rather than reuse it
+
         embedding = np.array(json.loads(embedding_json))
         score = cosine_similarity(query_embedding, embedding)
         if score >= SIMILARITY_THRESHOLD:
