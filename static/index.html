@@ -213,6 +213,18 @@
 
   .answer.error { color: var(--rust); font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
 
+  #conn-banner {
+    display: none;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--brass);
+    background: rgba(201, 154, 78, 0.08);
+    border-bottom: 1px solid var(--panel-border);
+    padding: 8px 24px;
+  }
+  #conn-banner.is-visible { display: block; }
+  #conn-banner.is-error { color: var(--rust); background: rgba(192, 107, 78, 0.08); }
+
   .sources {
     margin-top: 14px;
     font-family: 'IBM Plex Mono', monospace;
@@ -311,6 +323,8 @@
       <button id="export-btn" disabled>EXPORT REPORT</button>
     </header>
 
+    <div id="conn-banner"></div>
+
     <div id="feed">
       <div class="empty-state" id="empty-state">
         ask something that needs looking into.<br>
@@ -328,11 +342,58 @@
   </main>
 
 <script>
+// Frontend and backend are served from the same Render service (see
+// DEPLOYMENT.md), so same-origin always works — locally via
+// `uvicorn api:app`, and in production on Render. No separate backend
+// URL to configure or forget to update.
 const API_BASE = window.location.origin;
+const isLocalDev = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
 let sessionId = null;
 let searchCount = 0;
 let isStreaming = false;
+
+const connBanner = document.getElementById('conn-banner');
+
+function showBanner(text, isError) {
+  connBanner.textContent = text;
+  connBanner.className = 'is-visible' + (isError ? ' is-error' : '');
+}
+
+function hideBanner() {
+  connBanner.className = '';
+}
+
+// Render's free tier sleeps the backend after inactivity — the first
+// request after that can take 20-50s to wake it up. Rather than let a
+// user's first message just hang with no explanation, ping /health on
+// load and retry with backoff, showing an honest "waking up" message
+// during that window instead of silence.
+async function checkBackendHealth() {
+  const maxAttempts = 10;
+  const delaysMs = [1000, 2000, 3000, 4000, 5000, 5000, 5000, 5000, 5000, 5000];
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const response = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(8000) });
+      if (response.ok) {
+        hideBanner();
+        return;
+      }
+    } catch {
+      // fall through to retry
+    }
+
+    if (attempt === 0 && !isLocalDev) {
+      showBanner('waking up the server — free hosting sleeps when idle, this can take up to a minute…', false);
+    }
+    await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt]));
+  }
+
+  showBanner(`can't reach the backend at ${API_BASE}. it may still be starting up — try sending a message anyway, or reload in a moment.`, true);
+}
+
+checkBackendHealth();
 
 const feed = document.getElementById('feed');
 const emptyState = document.getElementById('empty-state');

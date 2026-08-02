@@ -246,6 +246,10 @@ Tests mock all external APIs (Gemini, Tavily, the embedding model) — the suite
 
 Logs are written to `logs/delve.log` (rotated automatically) — useful for understanding agent behavior after the fact, separate from the live terminal UI.
 
+## Deployment
+
+Deployable for free (no credit card) as a single Render service — the backend serves the frontend itself, so there's just one URL. Full walkthrough in [`DEPLOYMENT.md`](./DEPLOYMENT.md).
+
 ## Production settings
 
 All configurable via environment variables (see `.env.example`), all with sensible defaults:
@@ -281,7 +285,7 @@ All configurable via environment variables (see `.env.example`), all with sensib
 - [x] Production-readiness: rate limiting, cache TTL, idle-session cleanup, configurable CORS
 - [ ] Source credibility scoring / filtering
 - [ ] Persistent user profiles across sessions
-- [ ] Free public deployment
+- [x] Free public deployment — one Render service, config ready (`render.yaml`), see `DEPLOYMENT.md`
 
 ---
 
