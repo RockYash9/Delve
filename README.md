@@ -45,6 +45,7 @@ That distinction — agent-directed tool use vs. a fixed retrieve-then-generate 
 - 💬 **Multi-turn memory** — follow-up questions ("what about the second one?") correctly resolve against earlier context
 - 💾 **Local semantic cache** — every search result is embedded and cached; semantically similar future questions ("EV incentives" vs. "electric vehicle tax credits") reuse cached results instead of burning another API call
 - 📄 **Exportable reports** — turn any research session into a clean markdown document with a deduplicated, properly cited sources list
+- 🔬 **Deep Research mode (opt-in)** — cross-references multiple sources for genuine factual contradictions, and runs a second, independent model call to verify the final answer's claims against the actual retrieved sources, flagging anything stated confidently but not actually supported. Off by default — each pass is a full extra API call
 - 🛡️ **Resilient by design** — automatic retry with backoff on transient API failures, rate limiting, idle-session cleanup
 - 💸 **Runs entirely on free tiers** — no paid API or hosting required for any component
 
@@ -132,6 +133,7 @@ The core design principle: **the LLM is the orchestrator, not the pipeline.** Ge
 | CLI / UX | [rich](https://github.com/Textualize/rich) | Formatted panels, live status spinners, clean terminal output |
 | Web API | [FastAPI](https://fastapi.tiangolo.com) + [uvicorn](https://www.uvicorn.org) | Session-based HTTP access to the same agent that powers the CLI |
 | Rate limiting | [slowapi](https://github.com/laurentS/slowapi) | Protects free-tier Gemini/Tavily quotas from abuse |
+| Structured LLM output | [Pydantic](https://docs.pydantic.dev) | Used with Gemini's `response_schema` support so Deep Research mode gets a typed, validated JSON response instead of hand-parsing free-form text |
 | Hosting | [Render](https://render.com) | Free web service tier, no credit card, runs a real persistent process |
 | Config | python-dotenv | Environment-based secrets management, keys never touch source control |
 
@@ -166,7 +168,8 @@ delve/
     ├── storage/
     │   ├── embeddings.py       # embedding calls via the Gemini API
     │   └── cache.py             # SQLite-backed semantic cache
-    └── reports.py               # builds exportable markdown reports + citations
+    ├── reports.py               # builds exportable markdown reports + citations
+    └── verification.py           # Deep Research: contradiction detection + claim verification
 ```
 
 ---
@@ -265,6 +268,24 @@ It's a POST endpoint rather than the browser-native `EventSource` (which only su
 
 **A note on isolation**: each session gets its own agent instance and its own search-citation tracking — one user's conversation and sources never leak into another's, even when many sessions run concurrently.
 
+### Deep Research mode
+
+An opt-in flag (`deep_research: true` on `/chat`/`/chat/stream`, or the "DEEP RESEARCH" toggle in the UI) that runs two extra, independent checks after the normal answer completes:
+
+1. **Contradiction detection** — cross-references this turn's search sources for genuine factual disagreements (different numbers, dates, statuses) and surfaces them explicitly, rather than letting the answer silently pick one version and move on.
+2. **Self-verification** — a *second, separate* Gemini call checks the final answer's individual factual claims against the actual retrieved source content, flagging anything stated confidently but not actually grounded in what was retrieved. This is a direct, practical mitigation for the most common trust failure in RAG/agent systems: a fluent, confident-sounding answer that quietly contains an unsupported or fabricated detail.
+
+```
+data: {"type": "contradictions", "contradictions": [
+  {"topic": "launch date", "source_a_title": "...", "source_a_claim": "March 2026",
+   "source_b_title": "...", "source_b_claim": "June 2026", "explanation": "..."}
+]}
+data: {"type": "verification", "total_claims_checked": 5, "supported_count": 4,
+       "unsupported_claims": [{"claim": "...", "reason": "..."}]}
+```
+
+**Off by default, on purpose**: each check is a full extra Gemini API call, so enabling it roughly doubles or triples request volume for that turn against a free-tier quota. Both checks fail gracefully (return an empty/neutral result rather than raising) if the verification call itself errors — Deep Research is an enhancement layered on top of the core answer, never a hard dependency that could break it. `contradictions` only fires when something is actually found; `verification` always fires when the mode is on, since "checked, all supported" is itself useful information to show.
+
 ---
 
 ## Frontend
@@ -348,6 +369,7 @@ All configurable via environment variables (see `.env.example`), all with sensib
 - [x] Web frontend
 - [x] Production-readiness: rate limiting, cache TTL, idle-session cleanup, configurable CORS
 - [x] Free public deployment — live on Render
+- [x] Deep Research mode: cross-source contradiction detection + self-verification of claims against sources
 - [ ] Source credibility scoring / filtering
 - [ ] Persistent user profiles / cache across restarts (needs a persistent disk or external store)
 - [ ] Authentication for multi-user deployments

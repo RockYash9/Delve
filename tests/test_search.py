@@ -30,7 +30,13 @@ def test_cache_hit_skips_tavily_call(monkeypatch):
 
     assert "Cached Title" in result
     mock_tavily_instance.search.assert_not_called()
-    assert sources == [{"title": "Cached Title", "url": "https://example.com/cached"}]
+    assert sources == [
+        {
+            "title": "Cached Title",
+            "url": "https://example.com/cached",
+            "content": "cached content",
+        }
+    ]
 
 
 def test_cache_miss_calls_tavily_and_populates_cache(monkeypatch):
@@ -64,7 +70,13 @@ def test_cache_miss_calls_tavily_and_populates_cache(monkeypatch):
     assert "Live Result" in result
     assert len(stored_calls) == 1
     assert stored_calls[0][1] == "Live Result"
-    assert sources == [{"title": "Live Result", "url": "https://example.com/live"}]
+    assert sources == [
+        {
+            "title": "Live Result",
+            "url": "https://example.com/live",
+            "content": "live content",
+        }
+    ]
 
 
 def test_no_results_returns_friendly_message_not_crash(monkeypatch):

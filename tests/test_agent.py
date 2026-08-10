@@ -28,7 +28,7 @@ class _FakeConversation:
             raise errors.ServerError(503, {"error": {"message": "overloaded"}})
         return "final answer"
 
-    def send_stream(self, message: str):
+    def send_stream(self, message: str, deep_research: bool = False):
         if self.fail_immediately:
             raise errors.ServerError(503, {"error": {"message": "overloaded"}})
         yield {"type": "token", "text": "streamed answer"}

@@ -65,7 +65,7 @@ def make_web_search_tool(
             logger.info("cache_hit query=%r matches=%d", query, len(cached_matches))
             formatted_chunks = []
             for _score, title, url, content in cached_matches:
-                sources.append({"title": title, "url": url})
+                sources.append({"title": title, "url": url, "content": content})
                 formatted_chunks.append(f"Title: {title}\nURL: {url}\nContent: {content}")
             return "\n\n---\n\n".join(formatted_chunks)
 
@@ -88,7 +88,7 @@ def make_web_search_tool(
 
             cache.store_result(query=query, title=title, url=url, content=content)
 
-            sources.append({"title": title, "url": url})
+            sources.append({"title": title, "url": url, "content": content})
             formatted_chunks.append(f"Title: {title}\nURL: {url}\nContent: {content}")
 
         return "\n\n---\n\n".join(formatted_chunks)

@@ -67,6 +67,7 @@ _session_last_used: dict[str, datetime] = {}
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
+    deep_research: bool = False
 
 
 class ChatResponse(BaseModel):
@@ -135,11 +136,20 @@ def chat_stream(request: Request, payload: ChatRequest) -> StreamingResponse:
     """Like /chat, but streams the reply as Server-Sent Events instead of
     waiting for the full answer.
 
+    Set payload.deep_research=True to also run two extra checks after
+    the answer: cross-source contradiction detection and self-
+    verification of the answer's claims against its sources. Off by
+    default — each is a full extra Gemini API call, so this roughly
+    doubles/triples request volume for the turn.
+
     Event shapes sent as `data: <json>\\n\\n` lines:
       {"type": "session", "session_id": "..."}   — sent first
-      {"type": "status", "text": "..."}          — search activity
+      {"type": "status", "text": "..."}          — search/verification activity
       {"type": "token", "text": "..."}           — a chunk of answer text
       {"type": "sources", "sources": [...]}      — this turn's citations
+      {"type": "contradictions", "contradictions": [...]}  — deep_research only
+      {"type": "verification", "total_claims_checked": N,
+       "supported_count": N, "unsupported_claims": [...]}  — deep_research only
       {"type": "error", "text": "..."}           — on overload
       {"type": "done"}                            — stream finished
 
@@ -153,7 +163,7 @@ def chat_stream(request: Request, payload: ChatRequest) -> StreamingResponse:
 
     def event_stream():
         yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
-        for event in agent.ask_stream(payload.message):
+        for event in agent.ask_stream(payload.message, deep_research=payload.deep_research):
             yield f"data: {json.dumps(event)}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 

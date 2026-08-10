@@ -39,7 +39,7 @@ class _FakeAgent:
         self._transcript.append(("model", reply))
         return reply
 
-    def ask_stream(self, message: str):
+    def ask_stream(self, message: str, deep_research: bool = False):
         yield {"type": "token", "text": f"echo: {message}"}
 
     def reset(self) -> None:

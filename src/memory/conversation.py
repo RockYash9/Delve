@@ -16,6 +16,7 @@ from google import genai
 from google.genai import types
 
 import config
+from src import verification
 from src.tools.search import make_web_search_tool
 
 logger = logging.getLogger(__name__)
@@ -83,10 +84,11 @@ class Conversation:
             "rephrasing your question."
         )
 
-    def send_stream(self, message: str):
+    def send_stream(self, message: str, deep_research: bool = False):
         """Send a message and yield structured events for a live-feeling reply.
 
-        Yields dicts of the form {"type": "status"|"token", "text": ...}.
+        Yields dicts of the form {"type": "status"|"token"|"sources"|
+        "contradictions"|"verification", ...}.
 
         IMPORTANT DESIGN NOTE: this does NOT use Gemini's raw
         send_message_stream(). Gemini has a confirmed bug (gemini-3.5-flash,
@@ -107,6 +109,13 @@ class Conversation:
         tool wrapper independent of Gemini's stream; only the final
         answer text is "simulated" streaming rather than raw
         network-level token streaming.
+
+        deep_research=True additionally runs two extra, independent
+        Gemini calls after the answer is complete: a contradiction
+        check across this turn's sources, and a self-verification pass
+        checking the answer's own claims against those sources. Off by
+        default — each is a full extra API call, so this roughly
+        doubles or triples request volume for this turn.
         """
         flushed_count = 0
 
@@ -144,6 +153,28 @@ class Conversation:
 
         if new_sources:
             yield {"type": "sources", "sources": new_sources}
+
+        if deep_research and new_sources:
+            yield {"type": "status", "text": "🔬 checking sources for contradictions..."}
+            contradiction_report = verification.check_contradictions(new_sources)
+            if contradiction_report.has_contradictions:
+                yield {
+                    "type": "contradictions",
+                    "contradictions": [
+                        c.model_dump() for c in contradiction_report.contradictions
+                    ],
+                }
+
+            yield {"type": "status", "text": "🔬 verifying claims against sources..."}
+            verification_report = verification.verify_claims(reply, new_sources)
+            yield {
+                "type": "verification",
+                "total_claims_checked": verification_report.total_claims_checked,
+                "supported_count": verification_report.supported_count,
+                "unsupported_claims": [
+                    c.model_dump() for c in verification_report.unsupported_claims
+                ],
+            }
 
     def turn_count(self) -> int:
         """How many messages (user + model) are in this conversation so far."""

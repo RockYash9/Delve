@@ -60,7 +60,7 @@ class Agent:
         # and any future refactor that changes the loop.
         raise RuntimeError("ask() exited its retry loop without returning")
 
-    def ask_stream(self, user_message: str):
+    def ask_stream(self, user_message: str, deep_research: bool = False):
         """Yield structured events for a streamed reply.
 
         Unlike ask(), this does not retry on transient overload — once a
@@ -68,9 +68,14 @@ class Agent:
         client, so silently retrying from scratch doesn't have clean
         semantics. Instead, an overload surfaces as a single error event.
         For a resilient one-shot answer, use ask() instead.
+
+        deep_research=True runs extra contradiction/verification checks
+        after the answer — see Conversation.send_stream() for details.
         """
         try:
-            yield from self._conversation.send_stream(user_message)
+            yield from self._conversation.send_stream(
+                user_message, deep_research=deep_research
+            )
         except errors.ServerError:
             logger.warning("gemini_overloaded_during_stream")
             yield {
