@@ -59,7 +59,7 @@ def make_web_search_tool(
             A text summary of the top search results, including titles,
             URLs, and relevant snippets.
         """
-        cached_matches = cache.find_similar(query)
+        cached_matches = cache.find_similar(query, top_k=config.SEARCH_MAX_RESULTS)
         if cached_matches:
             _record_status(f"💾 using cached results for: {query}")
             logger.info("cache_hit query=%r matches=%d", query, len(cached_matches))
@@ -73,7 +73,11 @@ def make_web_search_tool(
         logger.info("live_search query=%r", query)
 
         client = TavilyClient(api_key=config.TAVILY_API_KEY)
-        response = client.search(query=query, max_results=5)
+        response = client.search(
+            query=query,
+            max_results=config.SEARCH_MAX_RESULTS,
+            search_depth=config.SEARCH_DEPTH,
+        )
 
         results = response.get("results", [])
         if not results:

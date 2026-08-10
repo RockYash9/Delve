@@ -92,6 +92,46 @@ def test_no_results_returns_friendly_message_not_crash(monkeypatch):
     assert "No search results found" in result
 
 
+def test_live_search_uses_configured_max_results_and_depth(monkeypatch):
+    """Confirms config.SEARCH_MAX_RESULTS/SEARCH_DEPTH are genuinely
+    passed to Tavily, not just accepted silently by a permissive mock —
+    catches a regression back to a hardcoded max_results=5 or 'basic'."""
+    monkeypatch.setattr(search.cache, "find_similar", lambda query, top_k=5: [])
+    monkeypatch.setattr(search.config, "SEARCH_MAX_RESULTS", 8)
+    monkeypatch.setattr(search.config, "SEARCH_DEPTH", "advanced")
+
+    mock_tavily_instance = MagicMock()
+    mock_tavily_instance.search.return_value = {"results": []}
+    monkeypatch.setattr(search, "TavilyClient", lambda api_key: mock_tavily_instance)
+
+    web_search = search.make_web_search_tool([])
+    web_search("some query")
+
+    mock_tavily_instance.search.assert_called_once_with(
+        query="some query", max_results=8, search_depth="advanced"
+    )
+
+
+def test_cache_lookup_uses_configured_top_k(monkeypatch):
+    """Cache hits should return as many sources as a live search would —
+    confirms the cache-hit path passes config.SEARCH_MAX_RESULTS through
+    as top_k, rather than falling back to some smaller default."""
+    monkeypatch.setattr(search.config, "SEARCH_MAX_RESULTS", 8)
+
+    received_top_k = []
+
+    def fake_find_similar(query, top_k=5):
+        received_top_k.append(top_k)
+        return [(0.9, "T", "https://example.com/x", "content")]
+
+    monkeypatch.setattr(search.cache, "find_similar", fake_find_similar)
+
+    web_search = search.make_web_search_tool([])
+    web_search("some query")
+
+    assert received_top_k == [8]
+
+
 def test_two_tool_instances_have_isolated_sources(monkeypatch):
     """The whole point of the factory: two conversations' search tools
     must never share or leak into each other's sources list."""

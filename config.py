@@ -23,7 +23,17 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 # check https://ai.google.dev/gemini-api/docs/changelog for the current name.
 MODEL_NAME = "gemini-3.5-flash-lite"
 
-MAX_TOKENS = 1024
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "8192"))
+
+# How many results Tavily returns per search, and how deep it looks.
+# "advanced" costs ~2x the API credits of "basic" per Tavily's pricing,
+# but returns meaningfully more complete per-source content — worth it
+# for a research tool, where a handful of thin snippets isn't enough
+# material to actually work with. Tune SEARCH_MAX_RESULTS down (or
+# SEARCH_DEPTH back to "basic") if the free-tier search quota runs out
+# faster than expected.
+SEARCH_MAX_RESULTS = int(os.getenv("SEARCH_MAX_RESULTS", "8"))
+SEARCH_DEPTH = os.getenv("SEARCH_DEPTH", "advanced")
 
 # ---------- Production-readiness settings (brick 10) ----------
 

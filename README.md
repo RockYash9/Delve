@@ -340,6 +340,9 @@ All configurable via environment variables (see `.env.example`), all with sensib
 | `CACHE_TTL_HOURS` | `24` | How long a cached search result stays eligible for reuse before it's treated as stale and a fresh search happens instead. |
 | `SESSION_IDLE_TTL_MINUTES` | `120` | How long an API session can sit idle before it's purged, capping memory growth on a long-running server. Purged lazily on the next new session lookup, not via a background scheduler. |
 | `ALLOWED_ORIGINS` | `*` | CORS allowlist. Since the frontend and backend share one origin in this deployment, this mostly doesn't come into play — tighten it if you ever split them across two domains. |
+| `MAX_TOKENS` | `8192` | Max output length per answer. `gemini-3.5-flash-lite` supports up to 65,536 — 8192 is set as a genuine research-report budget (roughly 6,000 words), not the earlier default of 1024, which was cutting answers short. |
+| `SEARCH_MAX_RESULTS` | `8` | How many sources Tavily returns per search (and how many the semantic cache returns on a hit) — more raw material for the agent to actually synthesize from, not just 2-3 thin snippets. |
+| `SEARCH_DEPTH` | `advanced` | Tavily's `search_depth` setting — `advanced` returns meaningfully more complete per-source content than `basic`, at roughly 2x the API credit cost per Tavily's own pricing. Worth it for research quality; set back to `basic` if the free-tier search quota runs out faster than expected. |
 
 ## Known limitations
 
@@ -351,7 +354,7 @@ All configurable via environment variables (see `.env.example`), all with sensib
 - Gemini's free-tier models are occasionally retired or renamed by Google with little notice — if you hit a `404` on the configured model, check [ai.google.dev/gemini-api/docs/changelog](https://ai.google.dev/gemini-api/docs/changelog) and update `MODEL_NAME` in `config.py`.
 - **Gemini's raw streaming API is unreliable with tools attached**: `gemini-3.5-flash` has a confirmed bug (mid-2026) where combining true token streaming with automatic function calling can cause the model's final answer to come back genuinely empty whenever a tool runs mid-response — not just a display glitch, the generation itself stops with no text. Since this agent's search tool is attached to every conversation, that isn't a rare edge case here. `/chat/stream` works around it by getting the complete answer via the proven-reliable non-streaming path, then delivering it to the client in word-sized chunks — search status still arrives in true real time, but the final answer is "simulated" streaming rather than raw network-level token streaming.
 - The semantic cache expires entries after `CACHE_TTL_HOURS` (default 24h), but there's no per-topic tuning — a genuinely fast-moving story could still serve a same-day cached result. A shorter TTL for detected "news"-type queries would be a natural next refinement.
-- Free-tier rate limits apply on both Gemini and Tavily; heavy usage may require upgrading either.
+- Free-tier rate limits apply on both Gemini and Tavily; heavy usage may require upgrading either. `SEARCH_DEPTH=advanced` (the default, chosen for research quality) roughly doubles Tavily credit usage per search compared to `basic` — monitor usage if running heavy traffic on a free Tavily account.
 
 ---
 

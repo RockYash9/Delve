@@ -67,7 +67,7 @@ def store_result(query: str, title: str, url: str, content: str) -> None:
     conn.close()
 
 
-def find_similar(query: str, top_k: int = 5) -> list[tuple[float, str, str, str]]:
+def find_similar(query: str, top_k: int = 8) -> list[tuple[float, str, str, str]]:
     """Return cached (score, title, url, content) tuples similar to query.
 
     Only returns chunks at or above SIMILARITY_THRESHOLD AND within
