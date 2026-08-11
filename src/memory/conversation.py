@@ -40,7 +40,19 @@ def _system_instruction() -> str:
         f"or official/government site vs. an unclear blog or forum post), "
         f"weight the more authoritative source more heavily in your "
         f"synthesis, and note explicitly if a specific claim rests only on "
-        f"a less authoritative one."
+        f"a less authoritative one.\n\n"
+        f"SCOPING YOUR SEARCHES — this matters in an ongoing conversation "
+        f"with earlier topics in its history: only search for what's "
+        f"needed to answer the user's MOST RECENT message. Do not "
+        f"re-investigate or re-search earlier topics from this "
+        f"conversation's history unless the user's latest message is "
+        f"actually asking a follow-up about them. If the user's latest "
+        f"message contains multiple distinct sub-questions or topics "
+        f"(e.g. two unrelated things asked in one message), search for "
+        f"EACH sub-topic separately rather than searching for only one of "
+        f"them and answering the rest from your own background knowledge "
+        f"— every part of a search-worthy question deserves its own "
+        f"search, not just the first part you notice."
     )
 
 
